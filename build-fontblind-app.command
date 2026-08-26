@@ -14,7 +14,7 @@ if (( $# != 0 )); then
   exit 64
 fi
 
-for tool in python3 xcrun swiftc codesign ditto plutil file; do
+for tool in python3 xcrun swiftc codesign ditto plutil file curl; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "Missing required build tool: $tool" >&2
     exit 69
@@ -34,8 +34,13 @@ TEMP_BASE="${TMPDIR:-/tmp}"
 TEMP_BASE="${TEMP_BASE%/}"
 BUILD_ROOT="$(mktemp -d "$TEMP_BASE/fontblind-macos-build.XXXXXX")"
 INSTALL_STAGING=""
+SERVER_PID=""
 
 cleanup() {
+  if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+    kill "$SERVER_PID" >/dev/null 2>&1 || true
+    wait "$SERVER_PID" >/dev/null 2>&1 || true
+  fi
   if [[ -n "$INSTALL_STAGING" && "$INSTALL_STAGING" == /Applications/.FontBlind.install.* && -e "$INSTALL_STAGING" ]]; then
     rm -rf -- "$INSTALL_STAGING"
   fi
@@ -64,6 +69,9 @@ PYTHON="$PYTHON_ENV/bin/python"
   --collect-all uharfbuzz \
   --collect-all brotli \
   --hidden-import=fontblind_lab \
+  --hidden-import=fontblind_instance \
+  --hidden-import=fontblind_instance_http \
+  --hidden-import=fontblind_runtime \
   --distpath "$BUILD_ROOT/server-dist" \
   --workpath "$BUILD_ROOT/server-work" \
   --specpath "$BUILD_ROOT" \
@@ -76,6 +84,63 @@ if [[ ! -x "$SERVER_EXECUTABLE" ]]; then
   echo "PyInstaller did not produce the FontBlind server executable." >&2
   exit 70
 fi
+
+# Launch the exact frozen server that will be embedded in the app. A valid ZIP
+# is not enough: imports, local routing, injected controls, and response headers
+# must work before the bundle is signed and published.
+SERVER_LOG="$BUILD_ROOT/server.log"
+SERVER_HEADERS="$BUILD_ROOT/headers.txt"
+SERVER_INDEX="$BUILD_ROOT/index.html"
+SERVER_SCRIPT="$BUILD_ROOT/instance-export.js"
+SERVER_SESSION="$BUILD_ROOT/session.json"
+"$SERVER_EXECUTABLE" >"$SERVER_LOG" 2>&1 &
+SERVER_PID=$!
+READY_LINE=""
+for _attempt in {1..160}; do
+  READY_LINE="$(grep -m1 '^FONTBLIND_READY ' "$SERVER_LOG" || true)"
+  if [[ -n "$READY_LINE" ]]; then
+    break
+  fi
+  if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+    echo "Frozen FontBlind server exited before readiness." >&2
+    cat "$SERVER_LOG" >&2 || true
+    exit 70
+  fi
+  sleep 0.05
+done
+if [[ -z "$READY_LINE" ]]; then
+  echo "Frozen FontBlind server did not announce readiness." >&2
+  cat "$SERVER_LOG" >&2 || true
+  exit 70
+fi
+read -r READY_PREFIX READY_HOST READY_PORT <<< "$READY_LINE"
+if [[ "$READY_PREFIX" != "FONTBLIND_READY" || "$READY_HOST" != "127.0.0.1" || ! "$READY_PORT" == <-> ]]; then
+  echo "Frozen FontBlind server emitted malformed readiness data." >&2
+  exit 70
+fi
+SERVER_URL="http://127.0.0.1:$READY_PORT"
+curl --fail --silent --show-error --dump-header "$SERVER_HEADERS" "$SERVER_URL/" >"$SERVER_INDEX"
+curl --fail --silent --show-error "$SERVER_URL/instance-export.js" >"$SERVER_SCRIPT"
+curl --fail --silent --show-error "$SERVER_URL/api/session" >"$SERVER_SESSION"
+grep -q '<script src="/instance-export.js" defer></script>' "$SERVER_INDEX"
+grep -q 'FREEZE A STATIC INSTANCE' "$SERVER_SCRIPT"
+grep -qi '^Cache-Control: no-store, max-age=0' "$SERVER_HEADERS"
+grep -qi '^Content-Security-Policy:' "$SERVER_HEADERS"
+"$PYTHON" - "$SERVER_SESSION" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if value.get("ok") is not True or not isinstance(value.get("session"), str):
+    raise SystemExit("frozen server returned an invalid session contract")
+if len(value["session"]) < 32 or re.search(r"\s", value["session"]):
+    raise SystemExit("frozen server returned a weak session contract")
+PY
+kill "$SERVER_PID"
+wait "$SERVER_PID" || true
+SERVER_PID=""
 
 BUNDLE="$BUILD_ROOT/FontBlind.app"
 CONTENTS="$BUNDLE/Contents"
@@ -169,4 +234,4 @@ if (( INSTALL_APP )); then
 fi
 
 echo "Packaged: $ARTIFACT_DIR/FontBlind.zip"
-echo "Ad hoc signed for local use. Not notarized."
+echo "Frozen server smoke passed. Ad hoc signed for local use. Not notarized."
