@@ -1,4 +1,4 @@
-name: Gate 7 transform preview
+name: Gate 7 transform artifact
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   transform:
-    if: github.event.head_commit.message == 'Run Gate 7 transform preview'
+    if: github.event.head_commit.message == 'Upload Gate 7 transform artifact'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,11 +22,9 @@ jobs:
           python -m py_compile gate7-output/release_gauntlet.py gate7-output/tests/test_pipeline.py
           ! grep -q "<<'PY'" gate7-output/build-fontblind-app.command
           grep -q 'release_gauntlet.py" "$SERVER_URL" "$SMOKE_ROOT' gate7-output/build-fontblind-app.command
-      - name: Emit transformed files
-        run: |
-          for file in gate7-output/build-fontblind-app.command gate7-output/release_gauntlet.py gate7-output/tests/test_pipeline.py; do
-            echo "FONTBLIND_FILE_BEGIN ${file}"
-            gzip -c "$file" | base64 -w0
-            echo
-            echo "FONTBLIND_FILE_END ${file}"
-          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gate7-transformed-files
+          path: gate7-output
+          if-no-files-found: error
+          retention-days: 1
