@@ -50,7 +50,7 @@ jobs:
       - name: Run browser contract tests
         run: node --test tests/*.test.cjs
       - name: Smoke-test hardened runtime imports
-        run: python -c "from fontblind_runtime import ContractFontBlindServer; from fontblind_instance import build_static_instance_outputs"
+        run: python -c "from fontblind_runtime import ContractFontBlindServer; from fontblind_instance_verified import build_static_instance_outputs, verify_static_instance_outputs"
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
 
