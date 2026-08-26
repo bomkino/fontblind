@@ -6,6 +6,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from fontTools.misc.roundTools import otRound
 from fontTools.ttLib import TTFont
 
 from fontblind_instance import (
@@ -20,7 +21,7 @@ from fontblind_lab import build_slant_variable_outputs, build_variable_outputs
 from tests.test_lab import write_fixture_font
 
 
-_VARIATION_TABLES = {"avar", "cvar", "fvar", "gvar", "HVAR", "MVAR", "VVAR"}
+_VARIATION_TABLES = {"avar", "cvar", "fvar", "gvar", "HVAR", "MVAR", "STAT", "VVAR"}
 
 
 class StaticInstanceTests(unittest.TestCase):
@@ -36,6 +37,14 @@ class StaticInstanceTests(unittest.TestCase):
 
             variable = build_variable_outputs([regular, bold], variable_dir)
             source = variable_dir / variable.native.filename
+            source_font = TTFont(str(source), lazy=False)
+            try:
+                self.assertIn("STAT", source_font)
+                self.assertIn("fvar", source_font)
+                self.assertIn("gvar", source_font)
+            finally:
+                source_font.close()
+
             result = build_static_instance_outputs(source, instance_dir, location={"wght": 550})
 
             native = instance_dir / result.native.filename
@@ -50,17 +59,22 @@ class StaticInstanceTests(unittest.TestCase):
             self.assertTrue(all(result.checks.values()))
             self.assertNotIn("revealing", str(result.to_public_dict()).casefold())
 
-            font = TTFont(str(native), lazy=False)
-            try:
-                self.assertFalse(_VARIATION_TABLES & set(font.keys()))
-                self.assertEqual(int(font["OS/2"].usWeightClass), 550)
-                self.assertFalse(int(font["OS/2"].fsSelection) & 0x0001)
-                self.assertFalse(int(font["OS/2"].fsSelection) & 0x0200)
-                names = {record.toUnicode() for record in font["name"].names}
-                self.assertTrue(any(name.startswith("Untitled") for name in names))
-                self.assertFalse(any("Revealing" in name for name in names))
-            finally:
-                font.close()
+            for path in (native, web):
+                font = TTFont(str(path), lazy=False)
+                try:
+                    self.assertFalse(_VARIATION_TABLES & set(font.keys()))
+                    self.assertEqual(int(font["OS/2"].usWeightClass), 550)
+                    self.assertFalse(int(font["OS/2"].fsSelection) & 0x0001)
+                    self.assertFalse(int(font["OS/2"].fsSelection) & 0x0200)
+                    self.assertIsNone(getattr(font["GDEF"].table, "VarStore", None) if "GDEF" in font else None)
+                    for tag in ("GSUB", "GPOS"):
+                        if tag in font:
+                            self.assertIsNone(getattr(font[tag].table, "FeatureVariations", None))
+                    names = {record.toUnicode() for record in font["name"].names}
+                    self.assertTrue(any(name.startswith("Untitled") for name in names))
+                    self.assertFalse(any("Revealing" in name for name in names))
+                finally:
+                    font.close()
 
             css_text = css.read_text(encoding="utf-8")
             self.assertIn("font-weight: 550", css_text)
@@ -87,17 +101,30 @@ class StaticInstanceTests(unittest.TestCase):
             result = build_static_instance_outputs(source, instance_dir, location={"slnt": -10})
             native = instance_dir / result.native.filename
 
-            font = TTFont(str(native), lazy=False)
-            try:
-                selection = int(font["OS/2"].fsSelection)
-                self.assertTrue(selection & 0x0200)
-                self.assertFalse(selection & 0x0001)
-                self.assertFalse(selection & 0x0040)
-                self.assertFalse(int(font["head"].macStyle) & 0x0002)
-                self.assertAlmostEqual(float(font["post"].italicAngle), -10.0, places=4)
-                self.assertFalse(_VARIATION_TABLES & set(font.keys()))
-            finally:
-                font.close()
+            for path in (native, instance_dir / result.web.filename):
+                font = TTFont(str(path), lazy=False)
+                try:
+                    selection = int(font["OS/2"].fsSelection)
+                    self.assertTrue(selection & 0x0200)
+                    self.assertFalse(selection & 0x0001)
+                    self.assertFalse(selection & 0x0040)
+                    self.assertFalse(int(font["head"].macStyle) & 0x0002)
+                    self.assertAlmostEqual(float(font["post"].italicAngle), -10.0, places=4)
+                    self.assertFalse(_VARIATION_TABLES & set(font.keys()))
+                    self.assertEqual(int(font["hhea"].caretSlopeRise), 1000)
+                    self.assertEqual(
+                        int(font["hhea"].caretSlopeRun),
+                        int(otRound(1000.0 * math.tan(math.radians(10.0)))),
+                    )
+                    self.assertEqual(int(font["hhea"].caretOffset), 0)
+                    styles = {
+                        record.toUnicode()
+                        for record in font["name"].names
+                        if int(record.nameID) in {2, 17}
+                    }
+                    self.assertFalse(any("Italic" in style for style in styles))
+                finally:
+                    font.close()
 
             css_text = (instance_dir / result.css.filename).read_text(encoding="utf-8")
             self.assertIn("font-style: oblique 10deg", css_text)
@@ -122,13 +149,14 @@ class StaticInstanceTests(unittest.TestCase):
                 instance_dir,
                 location={"wght": 525, "wdth": 87.5},
             )
-            font = TTFont(str(instance_dir / result.native.filename), lazy=False)
-            try:
-                self.assertEqual(int(font["OS/2"].usWeightClass), 525)
-                self.assertEqual(int(font["OS/2"].usWidthClass), 4)
-                self.assertFalse(_VARIATION_TABLES & set(font.keys()))
-            finally:
-                font.close()
+            for path in (instance_dir / result.native.filename, instance_dir / result.web.filename):
+                font = TTFont(str(path), lazy=False)
+                try:
+                    self.assertEqual(int(font["OS/2"].usWeightClass), 525)
+                    self.assertEqual(int(font["OS/2"].usWidthClass), 4)
+                    self.assertFalse(_VARIATION_TABLES & set(font.keys()))
+                finally:
+                    font.close()
             css_text = (instance_dir / result.css.filename).read_text(encoding="utf-8")
             self.assertIn("font-weight: 525", css_text)
             self.assertIn("font-stretch: 87.5%", css_text)
