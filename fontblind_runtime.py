@@ -25,16 +25,21 @@ from fontblind_app import (
     Job,
     JobStore,
 )
+from fontblind_artifacts import retained_artifact_bytes, validate_job_artifacts
 from fontblind_contract import (
     LANE_SLANT,
     LANE_VARIABLE,
     ArtifactSeal,
     expected_lane_for,
     validate_build_result,
-    validate_job_artifacts,
 )
 from fontblind_instance_http import InstanceHandler
 from fontblind_surgical import FontBlindError
+
+
+MAX_RETAINED_JOBS = 8
+MAX_RETAINED_BYTES = 768 * 1024 * 1024
+MAX_CONCURRENT_DOWNLOADS = 2
 
 
 def _stop_signal(_signum: int, _frame: object) -> None:
@@ -42,34 +47,51 @@ def _stop_signal(_signum: int, _frame: object) -> None:
 
 
 class ContractJobStore(JobStore):
-    """Own proof validation, artifact seals, and parent-child lifecycle."""
+    """Own proof validation, artifact seals, lifecycle, and retained-resource limits."""
 
     def __init__(self) -> None:
         # The base constructor starts the expiry thread, so initialise every
-        # structure that the overridden expiry method can touch first.
+        # structure that an overridden expiry path can touch first.
         self._artifact_seals: dict[str, dict[str, ArtifactSeal]] = {}
+        self._retained_bytes_by_token: dict[str, int] = {}
+        self._retained_bytes = 0
         self._parent_by_child: dict[str, str] = {}
         self._children_by_parent: dict[str, set[str]] = {}
+        self._instance_inflight: set[str] = set()
+        self._build_gate = threading.BoundedSemaphore(value=1)
         super().__init__()
 
     def _create_job(self, mode, source_count, options, populate_sources):  # type: ignore[no-untyped-def]
-        lane = expected_lane_for(mode, options)
-        token, job = super()._create_job(mode, source_count, options, populate_sources)
-        try:
-            validate_build_result(
-                job.result,
-                expected_lane=lane,
-                require_source_discarded=True,
-            )
-            seals = validate_job_artifacts(job.path, job.result)
-            with self._lock:
-                if self._jobs.get(token) is not job:
-                    raise FontBlindError("Generated output expired before it could be sealed")
-                self._artifact_seals[token] = seals
-        except Exception:
-            self.delete(token)
-            raise
-        return token, job
+        self.expire()
+        with self._build_gate:
+            lane = expected_lane_for(mode, options)
+            token, job = super()._create_job(mode, source_count, options, populate_sources)
+            try:
+                validate_build_result(
+                    job.result,
+                    expected_lane=lane,
+                    require_source_discarded=True,
+                )
+                seals = validate_job_artifacts(job.path, job.result)
+                artifact_bytes = retained_artifact_bytes(seals)
+                with self._lock:
+                    if self._jobs.get(token) is not job:
+                        raise FontBlindError("Generated output expired before it could be sealed")
+                    if (
+                        len(self._jobs) > MAX_RETAINED_JOBS
+                        or self._retained_bytes + artifact_bytes > MAX_RETAINED_BYTES
+                    ):
+                        raise FontBlindError(
+                            "FontBlind reached its local retained-output limit. "
+                            "Reset an existing result before building another."
+                        )
+                    self._artifact_seals[token] = seals
+                    self._retained_bytes_by_token[token] = artifact_bytes
+                    self._retained_bytes += artifact_bytes
+            except Exception:
+                self.delete(token)
+                raise
+            return token, job
 
     @staticmethod
     def _parent_lane(job: Job) -> str:
@@ -180,6 +202,11 @@ class ContractJobStore(JobStore):
         snapshot.close()
         return True
 
+    def retained_usage(self) -> tuple[int, int]:
+        """Return the number and total bytes of currently retained verified jobs."""
+        with self._lock:
+            return len(self._jobs), int(self._retained_bytes)
+
     def create_instance(
         self,
         parent_token: str,
@@ -189,48 +216,59 @@ class ContractJobStore(JobStore):
         parent = self.get(parent_token)
         if parent is None:
             raise FontBlindError("The generated variable source has expired")
-        lane = self._parent_lane(parent)
-        validate_build_result(
-            parent.result,
-            expected_lane=lane,
-            require_source_discarded=True,
-        )
-        if not parent.result.variable or not parent.result.axes or parent.result.native.media_type != "font/ttf":
-            raise FontBlindError("This output has no generated axis to freeze")
-
-        opened = self.open_artifact(parent_token, "native")
-        if opened is None:
-            raise FontBlindError("The generated variable source is no longer verified")
-        sealed_parent, _item, source, size = opened
-        try:
-            token, job = self._create_stream(
-                "instance",
-                source,
-                [size],
-                {"location": dict(location)},
-            )
-        finally:
-            source.close()
-
-        stale_parent = False
-        previous_children: tuple[str, ...] = ()
         with self._lock:
-            if self._jobs.get(parent_token) is not sealed_parent:
-                stale_parent = True
-            else:
-                previous_children = tuple(self._children_by_parent.get(parent_token, set()))
-                self._children_by_parent[parent_token] = {token}
-                self._parent_by_child[token] = parent_token
-        if stale_parent:
-            self.delete(token)
-            raise FontBlindError("The generated variable source expired during static export")
+            if self._jobs.get(parent_token) is not parent:
+                raise FontBlindError("The generated variable source has expired")
+            if parent_token in self._instance_inflight:
+                raise FontBlindError("A static export is already running for this generated source")
+            self._instance_inflight.add(parent_token)
 
-        # Keep the newly verified child, then remove the previous one. A failed
-        # replacement never destroys the last valid child package.
-        for previous in previous_children:
-            if previous != token:
-                self.delete(previous)
-        return token, job
+        try:
+            lane = self._parent_lane(parent)
+            validate_build_result(
+                parent.result,
+                expected_lane=lane,
+                require_source_discarded=True,
+            )
+            if not parent.result.variable or not parent.result.axes or parent.result.native.media_type != "font/ttf":
+                raise FontBlindError("This output has no generated axis to freeze")
+
+            opened = self.open_artifact(parent_token, "native")
+            if opened is None:
+                raise FontBlindError("The generated variable source is no longer verified")
+            sealed_parent, _item, source, size = opened
+            try:
+                token, job = self._create_stream(
+                    "instance",
+                    source,
+                    [size],
+                    {"location": dict(location)},
+                )
+            finally:
+                source.close()
+
+            stale_parent = False
+            previous_children: tuple[str, ...] = ()
+            with self._lock:
+                if self._jobs.get(parent_token) is not sealed_parent:
+                    stale_parent = True
+                else:
+                    previous_children = tuple(self._children_by_parent.get(parent_token, set()))
+                    self._children_by_parent[parent_token] = {token}
+                    self._parent_by_child[token] = parent_token
+            if stale_parent:
+                self.delete(token)
+                raise FontBlindError("The generated variable source expired during static export")
+
+            # Keep the newly verified child, then remove the previous one. A
+            # failed replacement never destroys the last valid child package.
+            for previous in previous_children:
+                if previous != token:
+                    self.delete(previous)
+            return token, job
+        finally:
+            with self._lock:
+                self._instance_inflight.discard(parent_token)
 
     def _pop_tokens_locked(self, tokens: set[str]) -> list[Job]:
         jobs: list[Job] = []
@@ -239,6 +277,9 @@ class ContractJobStore(JobStore):
             if job is not None:
                 jobs.append(job)
             self._artifact_seals.pop(token, None)
+            released = self._retained_bytes_by_token.pop(token, 0)
+            self._retained_bytes = max(0, self._retained_bytes - released)
+            self._instance_inflight.discard(token)
 
             parent = self._parent_by_child.pop(token, None)
             if parent is not None:
@@ -276,9 +317,13 @@ class ContractJobStore(JobStore):
 
     def close(self) -> None:
         super().close()
-        self._artifact_seals.clear()
-        self._parent_by_child.clear()
-        self._children_by_parent.clear()
+        with self._lock:
+            self._artifact_seals.clear()
+            self._retained_bytes_by_token.clear()
+            self._retained_bytes = 0
+            self._parent_by_child.clear()
+            self._children_by_parent.clear()
+            self._instance_inflight.clear()
 
 
 class ContractFontBlindServer(FontBlindServer):
@@ -291,6 +336,7 @@ class ContractFontBlindServer(FontBlindServer):
             self.jobs = ContractJobStore()
             self.session_secret = secrets.token_urlsafe(32)
             self.worker_gate = threading.BoundedSemaphore(value=1)
+            self.download_gate = threading.BoundedSemaphore(value=MAX_CONCURRENT_DOWNLOADS)
         except Exception:
             ThreadingHTTPServer.server_close(self)
             raise
