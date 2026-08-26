@@ -48,26 +48,38 @@ class InstanceHandler(Handler):
     """Extend the existing local boundary with one parent-scoped export route."""
 
     def _sealed_download(self, token: str, kind: str) -> None:
-        opener = getattr(self.server.jobs, "open_artifact", None)
-        opened = opener(token, kind) if callable(opener) else None
-        if opened is None:
+        gate = getattr(self.server, "download_gate", None)
+        acquired = gate is None or gate.acquire(blocking=False)
+        if not acquired:
             self._json(
-                HTTPStatus.NOT_FOUND,
-                {"ok": False, "error": "This output expired or failed its retained-file integrity check."},
+                HTTPStatus.TOO_MANY_REQUESTS,
+                {"ok": False, "error": "Too many verified downloads are already active. Try this download again."},
             )
             return
-        _job, item, snapshot, length = opened
-        with snapshot:
-            self._headers(
-                HTTPStatus.OK,
-                item.media_type,
-                length,
-                f'attachment; filename="{item.filename}"',
-            )
-            try:
-                shutil.copyfileobj(snapshot, self.wfile, length=COPY_CHUNK_BYTES)
-            except (BrokenPipeError, ConnectionResetError):
+        try:
+            opener = getattr(self.server.jobs, "open_artifact", None)
+            opened = opener(token, kind) if callable(opener) else None
+            if opened is None:
+                self._json(
+                    HTTPStatus.NOT_FOUND,
+                    {"ok": False, "error": "This output expired or failed its retained-file integrity check."},
+                )
                 return
+            _job, item, snapshot, length = opened
+            with snapshot:
+                self._headers(
+                    HTTPStatus.OK,
+                    item.media_type,
+                    length,
+                    f'attachment; filename="{item.filename}"',
+                )
+                try:
+                    shutil.copyfileobj(snapshot, self.wfile, length=COPY_CHUNK_BYTES)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+        finally:
+            if gate is not None:
+                gate.release()
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
