@@ -116,7 +116,7 @@ Workbench navigation exposes tabs and tabpanels, roving keyboard focus, a skip l
 
 The permanent release gate runs on Python 3.10, 3.12, and 3.13 on Ubuntu, Python 3.12 on macOS, and a separately built ad-hoc-signed macOS application. It also runs a pinned open-licensed corpus on Ubuntu and macOS, then processes the same corpus through the exact frozen server before the bundle is signed.
 
-Corpus coverage includes static TrueType, non-CID CFF1, Arabic cursive shaping, Devanagari reordering and conjuncts, Hebrew marks and right-to-left shaping, Thai positioning, real two-axis variable fonts, real compatible donor extraction, Oblique Lab, and fractional static positions.
+Corpus coverage includes static TrueType, non-CID CFF1, Arabic cursive shaping, Devanagari reordering and conjuncts, Hebrew marks and right-to-left shaping, Thai positioning, real two-axis variable fonts, real extracted-donor refusal on geometry drift, Oblique Lab, and fractional static positions.
 
 The exact frozen-runtime product gauntlet lives in `release_gauntlet.py`; `build-fontblind-app.command` orchestrates it rather than hiding test logic inside shell.
 

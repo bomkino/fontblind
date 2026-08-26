@@ -19,10 +19,10 @@ The fetcher accepts only reviewed `raw.githubusercontent.com` URLs, streams into
 | Source Code Pro Regular | Static non-CID CFF1 and PostScript metadata rewriting |
 | Noto Sans Arabic | Arabic cursive shaping, marks, GDEF/GPOS/GSUB, `wdth` + `wght` |
 | Noto Sans Devanagari | Reordering, conjuncts, marks, `wdth` + `wght` |
-| Noto Sans Hebrew | RTL shaping, combining marks, real donor extraction and Variable Lab |
+| Noto Sans Hebrew | RTL shaping, combining marks, and fail-closed extracted-donor geometry drift |
 | Noto Sans Thai | Thai clusters, positioning, `wdth` + `wght` |
 
-The tests exercise FontBlind's strict input policy and full native/WOFF2/CSS/ZIP pipeline for every asset. Selected variable fonts are also frozen at real interior positions. The Hebrew variable font supplies real compatible static donors for a donor-built two-axis Variable Lab pass.
+The tests exercise FontBlind's strict input policy and full native/WOFF2/CSS/ZIP pipeline for every asset. Selected variable fonts are also frozen at real interior positions. The Hebrew variable font supplies extracted static candidates that FontBlind correctly refuses when recompiled donor geometry drifts.
 
 ## Licensing
 

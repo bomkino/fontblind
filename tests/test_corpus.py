@@ -12,7 +12,7 @@ from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import OverlapMode, instantiateVariableFont
 
 from fontblind_instance_verified import build_static_instance_outputs
-from fontblind_lab import build_oblique_outputs, build_variable_outputs
+from fontblind_lab import FontLabError, build_oblique_outputs, build_variable_outputs
 from fontblind_pipeline import _decode_woff2, _harfbuzz_shape, build_browser_outputs
 
 
@@ -175,7 +175,7 @@ class RepresentativeCorpusTests(unittest.TestCase):
                 finally:
                     font.close()
 
-    def test_real_hebrew_variable_font_supplies_compatible_two_axis_donors(self) -> None:
+    def test_extracted_existing_variable_donors_fail_closed_on_geometry_drift(self) -> None:
         source = CORPUS_DIR / str(self.by_id["hebrew-variable-ttf"]["filename"])
         axes = _axis_rows(source)
         self.assertEqual(set(axes), {"wdth", "wght"})
@@ -191,21 +191,10 @@ class RepresentativeCorpusTests(unittest.TestCase):
             _save_instance(source, donors[1], {"wght": weight_extreme, "wdth": width_default})
             _save_instance(source, donors[2], {"wght": weight_default, "wdth": width_extreme})
 
-            result = build_variable_outputs(donors, root / "variable")
-            result.require_verified()
-            self.assertEqual([axis["tag"] for axis in result.axes], ["wght", "wdth"])
-            generated = root / "variable" / result.native.filename
-            location = {
-                "wght": weight_default + (weight_extreme - weight_default) * 0.43,
-                "wdth": width_default + (width_extreme - width_default) * 0.37,
-            }
-            frozen = build_static_instance_outputs(generated, root / "static", location=location)
-            frozen.require_verified()
-            font = TTFont(str(root / "static" / frozen.native.filename), lazy=False)
-            try:
-                self.assertFalse(VARIATION_TABLES & set(font.keys()))
-            finally:
-                font.close()
+            output = root / "variable"
+            with self.assertRaisesRegex(FontLabError, "does not match donor geometry"):
+                build_variable_outputs(donors, output)
+            self.assertEqual(list(output.iterdir()) if output.exists() else [], [])
 
 
 if __name__ == "__main__":

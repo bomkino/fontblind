@@ -405,7 +405,10 @@ def _generic_name_overrides(font: TTFont, names: GenericNames) -> dict[int, str]
         for index, value in enumerate(axis_values, start=1):
             name_id = int(value.ValueNameID)
             if name_id > 25:
-                overrides[name_id] = f"Value {index:02d}"
+                # A shared fvar/STAT name ID is primarily a named instance;
+                # keep that more specific neutral label instead of replacing
+                # it with the generic STAT value label.
+                overrides.setdefault(name_id, f"Value {index:02d}")
     return overrides
 
 
