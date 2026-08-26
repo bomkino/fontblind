@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# Temporary exact-head trigger for the final Gate 3/4 semantic audit.
+# Gate 3/4 exact-head validation: includes CSS semantics, races, and native packaging.
 concurrency:
   group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
