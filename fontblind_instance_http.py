@@ -5,6 +5,7 @@ import io
 import json
 import math
 import re
+import shutil
 from http import HTTPStatus
 from urllib.parse import urlsplit
 
@@ -14,7 +15,7 @@ from fontblind_app import (
     Handler,
     LabRequestError,
 )
-from fontblind_stream import StreamInterruptedError, copy_exact
+from fontblind_stream import COPY_CHUNK_BYTES, StreamInterruptedError, copy_exact
 from fontblind_surgical import FontBlindError
 from fontblind_web import WebBuildError
 
@@ -49,6 +50,28 @@ def _validated_public_location(axes: tuple[dict[str, object], ...], raw: object)
 class InstanceHandler(Handler):
     """Extend the existing local boundary with one parent-scoped export route."""
 
+    def _sealed_download(self, token: str, kind: str) -> None:
+        opener = getattr(self.server.jobs, "open_artifact", None)
+        opened = opener(token, kind) if callable(opener) else None
+        if opened is None:
+            self._json(
+                HTTPStatus.NOT_FOUND,
+                {"ok": False, "error": "This output expired or failed its retained-file integrity check."},
+            )
+            return
+        _job, item, snapshot, length = opened
+        with snapshot:
+            self._headers(
+                HTTPStatus.OK,
+                item.media_type,
+                length,
+                f'attachment; filename="{item.filename}"',
+            )
+            try:
+                shutil.copyfileobj(snapshot, self.wfile, length=COPY_CHUNK_BYTES)
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
     def do_GET(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
         download = DOWNLOAD_PATH.fullmatch(path)
@@ -56,15 +79,7 @@ class InstanceHandler(Handler):
             if not self._host_ok():
                 self._json(HTTPStatus.MISDIRECTED_REQUEST, {"ok": False, "error": "Invalid local host."})
                 return
-            token, kind = download.groups()
-            verifier = getattr(self.server.jobs, "verify_artifact", None)
-            if not callable(verifier) or not verifier(token, kind):
-                self._json(
-                    HTTPStatus.NOT_FOUND,
-                    {"ok": False, "error": "This output expired or failed its retained-file integrity check."},
-                )
-                return
-            super().do_GET()
+            self._sealed_download(*download.groups())
             return
 
         if path not in {"/", "/index.html", "/instance-export.js"}:
