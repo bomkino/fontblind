@@ -27,37 +27,21 @@ jobs:
 
           part1_path = Path("tools/apply_v350_part1.py")
           part1 = part1_path.read_text(encoding="utf-8")
-          old_validation = '''        if not isinstance(raw_axes, (list, tuple)) or not isinstance(raw_masters, (list, tuple)):
-              raise ValueError("FontBlind worker returned malformed Lab inspection data")
-          result = cls(
-          '''
-          new_validation = '''        if not isinstance(raw_axes, (list, tuple)) or not isinstance(raw_masters, (list, tuple)):
-              raise ValueError("FontBlind worker returned malformed Lab inspection data")
-          if type(value.get("variable")) is not bool or type(value.get("color")) is not bool:
-              raise ValueError("FontBlind worker returned malformed font descriptors")
-          result = cls(
-          '''
+          old_validation = '        if not isinstance(raw_axes, (list, tuple)) or not isinstance(raw_masters, (list, tuple)):\n            raise ValueError("FontBlind worker returned malformed Lab inspection data")\n        result = cls(\n'
+          new_validation = '        if not isinstance(raw_axes, (list, tuple)) or not isinstance(raw_masters, (list, tuple)):\n            raise ValueError("FontBlind worker returned malformed Lab inspection data")\n        if type(value.get("variable")) is not bool or type(value.get("color")) is not bool:\n            raise ValueError("FontBlind worker returned malformed font descriptors")\n        result = cls(\n'
           if part1.count(old_validation) != 1:
               raise RuntimeError("part1 descriptor validation drifted")
           part1 = part1.replace(old_validation, new_validation, 1)
-          old_flags = '''            variable=bool(value["variable"]),
-              color=bool(value["color"]),
-          '''
-          new_flags = '''            variable=value["variable"],
-              color=value["color"],
-          '''
+          old_flags = '            bundle=OutputFile(**dict(value["bundle"])),\n            flavor=str(value["flavor"]),\n            variable=bool(value["variable"]),\n            color=bool(value["color"]),\n'
+          new_flags = '            bundle=OutputFile(**dict(value["bundle"])),\n            flavor=str(value["flavor"]),\n            variable=value["variable"],\n            color=value["color"],\n'
           if part1.count(old_flags) != 1:
               raise RuntimeError("part1 descriptor assignment drifted")
           part1_path.write_text(part1.replace(old_flags, new_flags, 1), encoding="utf-8")
 
           part3_path = Path("tools/apply_v350_part3.py")
           part3 = part3_path.read_text(encoding="utf-8")
-          old_guard = '''    if count != 1:
-              raise RuntimeError(f"{label}: expected one match, found {count}")
-          '''
-          new_guard = '''    if count != 1 and not (label == "test app first variable media type" and count == 2):
-              raise RuntimeError(f"{label}: expected one match, found {count}")
-          '''
+          old_guard = '    if count != 1:\n        raise RuntimeError(f"{label}: expected one match, found {count}")\n'
+          new_guard = '    if count != 1 and not (label == "test app first variable media type" and count == 2):\n        raise RuntimeError(f"{label}: expected one match, found {count}")\n'
           if part3.count(old_guard) != 1:
               raise RuntimeError("part3 replace guard drifted")
           part3_path.write_text(part3.replace(old_guard, new_guard, 1), encoding="utf-8")
