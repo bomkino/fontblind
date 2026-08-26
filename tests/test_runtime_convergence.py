@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import http.client
+import inspect
 from pathlib import Path
 import re
 import threading
@@ -87,6 +88,9 @@ def browser_instance_checks(source: str) -> frozenset[str]:
 
 class CanonicalRuntimeTests(unittest.TestCase):
     def test_source_launcher_delegates_to_the_hardened_runtime(self) -> None:
+        source = inspect.getsource(fontblind_app.main)
+        self.assertIn("fontblind_runtime", source)
+        self.assertNotIn("FontBlindServer(", source)
         with mock.patch("fontblind_runtime.main", return_value=73) as runtime_main:
             self.assertEqual(fontblind_app.main(), 73)
         runtime_main.assert_called_once_with()
@@ -101,7 +105,8 @@ class CanonicalRuntimeTests(unittest.TestCase):
         )
         for script in scripts:
             self.assertEqual(expected.count(script), 1)
-        self.assertEqual([expected.index(script) for script in scripts], sorted(expected.index(script) for script in scripts))
+        positions = [expected.index(script) for script in scripts]
+        self.assertEqual(positions, sorted(positions))
 
         with running_server() as server:
             status, headers, payload = request(server, "/")
