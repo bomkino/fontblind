@@ -2,14 +2,13 @@ name: Tests
 
 on:
   push:
-    branches: [main, improve/inspect-instance-proof-3.6]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Gate 3/4 exact-head validation: includes CSS semantics, races, and native packaging.
 concurrency:
   group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
