@@ -1,0 +1,17 @@
+name: Gate 2 runner probe
+
+on:
+  push:
+    branches: [ci/gate2-runtime-validation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm runner startup
+        run: echo "runner-started"
