@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import secrets
 import shutil
 import signal
+import stat
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
 from collections.abc import Mapping
 from http.server import ThreadingHTTPServer
-from pathlib import Path
 
 from fontblind_app import (
     JOB_RE,
@@ -31,7 +33,6 @@ from fontblind_contract import (
     expected_lane_for,
     validate_build_result,
     validate_job_artifacts,
-    verify_artifact_seal,
 )
 from fontblind_instance_http import InstanceHandler
 from fontblind_surgical import FontBlindError
@@ -76,24 +77,104 @@ class ContractJobStore(JobStore):
             return LANE_VARIABLE
         raise FontBlindError("This output has no generated axis to freeze")
 
-    def verify_artifact(self, token: str, kind: str) -> bool:
-        """Fail closed if a retained file changed after the worker exited."""
+    @staticmethod
+    def _sealed_snapshot(job: Job, item: object, seal: ArtifactSeal):  # type: ignore[no-untyped-def]
+        """Copy one sealed file into an anonymous snapshot and verify while copying.
+
+        The returned descriptor is independent of the retained path. A local
+        mutation after verification therefore cannot alter bytes already being
+        used as an instance source or streamed to the browser.
+        """
+        descriptor: int | None = None
+        source = None
+        snapshot = None
+        try:
+            output_root = (job.path / "output").resolve(strict=True)
+            target = output_root / item.filename
+            if target.parent != output_root:
+                return None
+            flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(target, flags)
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or int(metadata.st_size) != seal.size
+                or int(metadata.st_dev) != seal.device
+                or int(metadata.st_ino) != seal.inode
+                or int(metadata.st_mtime_ns) != seal.modified_ns
+            ):
+                return None
+
+            source = os.fdopen(descriptor, "rb", closefd=True)
+            descriptor = None
+            snapshot = tempfile.TemporaryFile(prefix=".fontblind-sealed-", dir=job.path)
+            digest = hashlib.sha256()
+            remaining = seal.size
+            while remaining:
+                block = source.read(min(1024 * 1024, remaining))
+                if not block:
+                    return None
+                digest.update(block)
+                written = snapshot.write(block)
+                if written != len(block):
+                    return None
+                remaining -= len(block)
+            if source.read(1) or digest.hexdigest() != seal.sha256:
+                return None
+            after = os.fstat(source.fileno())
+            if (
+                int(after.st_size) != seal.size
+                or int(after.st_dev) != seal.device
+                or int(after.st_ino) != seal.inode
+                or int(after.st_mtime_ns) != seal.modified_ns
+            ):
+                return None
+            snapshot.flush()
+            snapshot.seek(0)
+            result = snapshot
+            snapshot = None
+            return result
+        except (OSError, AttributeError, TypeError, ValueError):
+            return None
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            if source is not None:
+                source.close()
+            if snapshot is not None:
+                snapshot.close()
+
+    def open_artifact(self, token: str, kind: str):  # type: ignore[no-untyped-def]
+        """Return an anonymous verified snapshot, never the retained path itself."""
         if not JOB_RE.fullmatch(token) or kind not in {"native", "web", "css", "bundle"}:
-            return False
+            return None
         job = self.get(token)
         if job is None:
-            return False
+            return None
         with self._lock:
             if self._jobs.get(token) is not job:
-                return False
+                return None
             seal = self._artifact_seals.get(token, {}).get(kind)
         if seal is None:
             self.delete(token)
-            return False
+            return None
         item = getattr(job.result, kind)
-        if not verify_artifact_seal(job.path, item, seal):
+        snapshot = self._sealed_snapshot(job, item, seal)
+        if snapshot is None:
             self.delete(token)
+            return None
+        return job, item, snapshot, seal.size
+
+    def verify_artifact(self, token: str, kind: str) -> bool:
+        opened = self.open_artifact(token, kind)
+        if opened is None:
             return False
+        _job, _item, snapshot, _size = opened
+        snapshot.close()
         return True
 
     def create_instance(
@@ -113,34 +194,25 @@ class ContractJobStore(JobStore):
         )
         if not parent.result.variable or not parent.result.axes or parent.result.native.media_type != "font/ttf":
             raise FontBlindError("This output has no generated axis to freeze")
-        if not self.verify_artifact(parent_token, "native"):
-            raise FontBlindError("The generated variable source is no longer verified")
 
-        # Re-resolve the parent after the seal check. An explicit reset can run
-        # from another local request while verification is in progress.
-        parent = self.get(parent_token)
-        if parent is None:
-            raise FontBlindError("The generated variable source has expired")
-        item = parent.result.native
-        source_path = parent.path / "output" / item.filename
+        opened = self.open_artifact(parent_token, "native")
+        if opened is None:
+            raise FontBlindError("The generated variable source is no longer verified")
+        sealed_parent, _item, source, size = opened
         try:
-            with source_path.open("rb") as source:
-                size = os.fstat(source.fileno()).st_size
-                if size <= 0 or size > MAX_UPLOAD_BYTES:
-                    raise FontBlindError("Invalid generated variable source")
-                token, job = self._create_stream(
-                    "instance",
-                    source,
-                    [size],
-                    {"location": dict(location)},
-                )
-        except OSError as exc:
-            raise FontBlindError("The generated variable source is unavailable") from exc
+            token, job = self._create_stream(
+                "instance",
+                source,
+                [size],
+                {"location": dict(location)},
+            )
+        finally:
+            source.close()
 
         stale_parent = False
         previous_children: tuple[str, ...] = ()
         with self._lock:
-            if self._jobs.get(parent_token) is not parent:
+            if self._jobs.get(parent_token) is not sealed_parent:
                 stale_parent = True
             else:
                 previous_children = tuple(self._children_by_parent.get(parent_token, set()))
