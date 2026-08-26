@@ -4,13 +4,11 @@ from __future__ import annotations
 import io
 import json
 import math
-import os
 import re
 from http import HTTPStatus
 from urllib.parse import urlsplit
 
 from fontblind_app import (
-    MAX_UPLOAD_BYTES,
     UPLOAD_READ_TIMEOUT_SECONDS,
     WEB_ROOT,
     Handler,
@@ -23,6 +21,7 @@ from fontblind_web import WebBuildError
 
 INSTANCE_BODY_BYTES = 4 * 1024
 INSTANCE_PATH = re.compile(r"^/api/jobs/([a-f0-9]{32})/instance$")
+DOWNLOAD_PATH = re.compile(r"^/download/([a-f0-9]{32})/(native|web|css|bundle)$")
 _INDEX_MARKER = '<script src="/app.js" defer></script>'
 _INDEX_INJECTION = '<script src="/instance-export.js" defer></script>\n    ' + _INDEX_MARKER
 
@@ -52,6 +51,22 @@ class InstanceHandler(Handler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
+        download = DOWNLOAD_PATH.fullmatch(path)
+        if download is not None:
+            if not self._host_ok():
+                self._json(HTTPStatus.MISDIRECTED_REQUEST, {"ok": False, "error": "Invalid local host."})
+                return
+            token, kind = download.groups()
+            verifier = getattr(self.server.jobs, "verify_artifact", None)
+            if not callable(verifier) or not verifier(token, kind):
+                self._json(
+                    HTTPStatus.NOT_FOUND,
+                    {"ok": False, "error": "This output expired or failed its retained-file integrity check."},
+                )
+                return
+            super().do_GET()
+            return
+
         if path not in {"/", "/index.html", "/instance-export.js"}:
             super().do_GET()
             return
@@ -72,6 +87,20 @@ class InstanceHandler(Handler):
         self._headers(HTTPStatus.OK, "text/html; charset=utf-8", len(payload))
         self.wfile.write(payload)
 
+    def _public_instance_result(self, token: str, job: object, location: dict[str, float]) -> None:
+        public = job.result.to_public_dict()
+        for kind in ("native", "web", "css", "bundle"):
+            public[kind]["url"] = f"/download/{token}/{kind}"
+        self._json(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "job": token,
+                "location": dict(location),
+                **public,
+            },
+        )
+
     def do_POST(self) -> None:  # noqa: N802
         match = INSTANCE_PATH.fullmatch(urlsplit(self.path).path)
         if match is None:
@@ -84,7 +113,8 @@ class InstanceHandler(Handler):
             self._json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Invalid local session."})
             return
 
-        parent = self.server.jobs.get(match.group(1))
+        parent_token = match.group(1)
+        parent = self.server.jobs.get(parent_token)
         if parent is None:
             self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "The generated variable source has expired."})
             return
@@ -118,19 +148,15 @@ class InstanceHandler(Handler):
             )
             return
         try:
-            item = parent.result.native
-            source_path = parent.path / "output" / item.filename
+            creator = getattr(self.server.jobs, "create_instance", None)
+            if not callable(creator):
+                self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"ok": False, "error": "Static export is unavailable in this local runtime."},
+                )
+                return
             try:
-                with source_path.open("rb") as source:
-                    size = os.fstat(source.fileno()).st_size
-                    if size <= 0 or size > MAX_UPLOAD_BYTES:
-                        raise FontBlindError("Invalid generated variable source")
-                    token, job = self.server.jobs._create_stream(  # Internal, same trust boundary.
-                        "instance",
-                        source,
-                        [size],
-                        {"location": location},
-                    )
+                token, job = creator(parent_token, location)
             except LabRequestError:
                 self._json(
                     HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -138,10 +164,13 @@ class InstanceHandler(Handler):
                 )
                 return
             except (FontBlindError, WebBuildError, OSError, ValueError):
-                self._json(
-                    HTTPStatus.UNPROCESSABLE_ENTITY,
-                    {"ok": False, "error": "This generated position could not be frozen and verified. No output was kept."},
-                )
+                if self.server.jobs.get(parent_token) is None:
+                    self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "The generated variable source has expired."})
+                else:
+                    self._json(
+                        HTTPStatus.UNPROCESSABLE_ENTITY,
+                        {"ok": False, "error": "This generated position could not be frozen and verified. No output was kept."},
+                    )
                 return
             except Exception:
                 self._json(
@@ -149,6 +178,14 @@ class InstanceHandler(Handler):
                     {"ok": False, "error": "Static export failed safely. No output was kept."},
                 )
                 return
-            self._public_result(token, job)
+
+            if self.server.jobs.get(token) is not job:
+                self.server.jobs.delete(token)
+                self._json(
+                    HTTPStatus.NOT_FOUND,
+                    {"ok": False, "error": "The frozen output expired before it could be exposed."},
+                )
+                return
+            self._public_instance_result(token, job, location)
         finally:
             self.server.worker_gate.release()
