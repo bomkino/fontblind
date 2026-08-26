@@ -24,7 +24,6 @@ from fontblind_app import (
     Handler,
     Job,
     JobStore,
-    _stop_signal,
 )
 from fontblind_contract import (
     LANE_SLANT,
@@ -36,6 +35,10 @@ from fontblind_contract import (
 )
 from fontblind_instance_http import InstanceHandler
 from fontblind_surgical import FontBlindError
+
+
+def _stop_signal(_signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt
 
 
 class ContractJobStore(JobStore):
