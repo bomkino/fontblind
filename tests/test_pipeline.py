@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 import unicodedata
@@ -19,6 +20,28 @@ from fontblind_web import WebBuildError
 
 
 FONT_ROOTS = (Path("/System/Library/Fonts"), Path("/Library/Fonts"))
+CORPUS_ROOT = Path(
+    os.environ.get(
+        "FONTBLIND_CORPUS_DIR",
+        Path(__file__).resolve().parent / "corpus" / "cache",
+    )
+)
+
+
+def corpus_sample(filename: str, required_table: str) -> Path | None:
+    path = CORPUS_ROOT / filename
+    if not path.is_file():
+        return None
+    try:
+        font = TTFont(str(path), lazy=True)
+        has_table = required_table in font
+        font.close()
+        if has_table:
+            inspect_strict_source(path)
+            return path
+    except Exception:
+        return None
+    return None
 
 
 def find_sample(required_table: str) -> Path | None:
@@ -38,9 +61,9 @@ def find_sample(required_table: str) -> Path | None:
     return None
 
 
-TTF_SAMPLE = find_sample("glyf")
-CFF_SAMPLE = find_sample("CFF ")
-VARIABLE_SAMPLE = find_sample("fvar")
+TTF_SAMPLE = corpus_sample("latin-static.ttf", "glyf") or find_sample("glyf")
+CFF_SAMPLE = corpus_sample("cff-static.otf", "CFF ") or find_sample("CFF ")
+VARIABLE_SAMPLE = corpus_sample("arabic-variable.ttf", "fvar") or find_sample("fvar")
 SECRET = "ORIGIN_LABEL_7Q9K2M"
 
 
