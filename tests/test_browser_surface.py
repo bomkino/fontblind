@@ -65,6 +65,10 @@ class BrowserPrivacyAndAccessibilityTests(unittest.TestCase):
         self.assertIn("@media (max-width: 760px)", self.styles)
         self.assertIn("@media (max-width: 680px)", self.map_styles)
 
+    def test_materialization_left_no_release_debris(self) -> None:
+        self.assertFalse((ROOT / ".gate6-materialize").exists())
+        self.assertFalse((ROOT / ".github" / "workflows" / "gate6-materialize.yml").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
