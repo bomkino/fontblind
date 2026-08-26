@@ -108,9 +108,15 @@ def patch_manifest() -> None:
 def patch_docs() -> None:
     replace_once(
         ROOT / "tests" / "corpus" / "README.md",
-        "| Noto Sans Hebrew | RTL shaping, combining marks, real donor extraction and Variable Lab coverage |",
+        "| Noto Sans Hebrew | RTL shaping, combining marks, real donor extraction and Variable Lab |",
         "| Noto Sans Hebrew | RTL shaping, combining marks, and fail-closed extracted-donor geometry drift |",
         "corpus Hebrew role",
+    )
+    replace_once(
+        ROOT / "tests" / "corpus" / "README.md",
+        "The Hebrew variable font supplies real compatible static donors for a donor-built two-axis Variable Lab pass.",
+        "The Hebrew variable font supplies extracted static candidates that FontBlind correctly refuses when recompiled donor geometry drifts.",
+        "corpus Hebrew outcome",
     )
     replace_once(
         ROOT / "README.md",
