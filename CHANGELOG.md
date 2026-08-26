@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.7.0 — Unreleased
+
+- Add a Garuda Linux / Arch / KDE x86_64 edition with a pacman-native `pkg.tar.zst` package as the primary Linux installation path.
+- Add checksum-pinned AppImage and deterministic AppDir `tar.gz` fallbacks, all using the same frozen FontBlind server and exact release gauntlet.
+- Add a browser-hosted desktop lifecycle that opens the configured default browser without bundling a second Chromium runtime.
+- Add a private per-user single-instance lock: a second launch reopens the existing loopback app instead of starting competing workers.
+- Add a session-authenticated shutdown endpoint enabled only for the Linux desktop host; the page waits until the service is actually unreachable before reporting closure.
+- Preserve the canonical loopback, anonymous-source, worker-isolation, artifact-seal, resource-limit, and zero-ID contracts on Linux.
+- Add Garuda/Arch package installation tests, AppImage execution without FUSE, desktop metadata checks, pinned packaging-tool digests, and Linux acceptance documentation.
+- Keep aarch64 build logic available but explicitly unclaimed until an exact native aarch64 runner and package journey exist.
+
 ## 3.6.0 — 2026-08-27
 
 - Add verified static-instance export for generated `wght`, `wdth`, and mechanical `slnt` positions, producing a static TTF, WOFF2, exact CSS, and deterministic ZIP without reopening original donors.

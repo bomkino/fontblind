@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=FontBlind
+GenericName=Local font workshop
+Comment=Build verified zero-ID, Oblique, variable, and static-instance font packages locally
+Exec=@EXEC@
+TryExec=@TRY_EXEC@
+Icon=fontblind
+Terminal=false
+Categories=Graphics;Utility;
+Keywords=font;typeface;woff2;variable font;oblique;
+StartupNotify=true
+X-AppImage-Version=@VERSION@

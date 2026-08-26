@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/bomkino/fontblind/actions/workflows/tests.yml/badge.svg)](https://github.com/bomkino/fontblind/actions/workflows/tests.yml)
 
-FontBlind is one local-only macOS app with three tools:
+FontBlind is one local-only type workshop with three tools:
 
 - **Blind** takes one TTF or OTF and makes a faithful zero-ID native font, full WOFF2, clean CSS, and ZIP.
 - **Oblique Lab** takes one upright TrueType font and makes either a declared static Oblique or a live upright-to-Oblique `slnt` variable font at 4–20 degrees. Neither output pretends to be a designed Italic.
@@ -10,15 +10,34 @@ FontBlind is one local-only macOS app with three tools:
 
 Generated `slnt`, `wght`, and `wdth` fonts can also freeze any verified position into a static TTF, WOFF2, exact `@font-face` CSS, and deterministic ZIP. Static export uses only FontBlind’s generated zero-ID variable font; original donors are not reopened.
 
-## Download
+## Platforms and packages
 
-Download the current Apple-silicon build from [GitHub Releases](https://github.com/bomkino/fontblind/releases/latest), unzip it, and move `FontBlind.app` to Applications. It requires macOS 13 or newer.
+### macOS
 
-The downloadable app is ad-hoc signed and not notarized. On first launch, macOS may require Control-clicking the app and choosing **Open**. You can also build it from source.
+The native Apple-silicon app supports macOS 13 or newer. Download the published build from [GitHub Releases](https://github.com/bomkino/fontblind/releases/latest), unzip it, and move `FontBlind.app` to Applications. It is ad-hoc signed, not notarized, so first launch may require Control-click → **Open**.
+
+### Garuda / Arch Linux
+
+The 3.7 Linux candidate targets Garuda Linux / Arch / KDE on x86_64. Its primary artifact is:
+
+```text
+fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
+```
+
+Install and remove it with pacman:
+
+```bash
+sudo pacman -U ./fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
+sudo pacman -Rns fontblind-bin
+```
+
+The package adds a KDE-visible launcher and `/usr/bin/fontblind`. It opens the reviewed FontBlind interface in the configured default browser while all processing remains in the private local runtime.
+
+### Portable Linux
+
+The same build produces x86_64 AppImage and AppDir `tar.gz` fallbacks. The AppImage can run without FUSE using `APPIMAGE_EXTRACT_AND_RUN=1`. aarch64 build logic exists but is not a release claim until a native aarch64 packaged journey is added.
 
 ## Use
-
-Open `/Applications/FontBlind.app`. There is no terminal step, account, cloud API, or external network request.
 
 Every successful tool emits four generic, tool-specific downloads:
 
@@ -31,7 +50,9 @@ For generated variable results, move the live axis controls to any verified posi
 
 The app owns an ephemeral loopback-only worker. Uploaded bytes are held in anonymous file descriptors without source filenames or directory entries. If the app dies, the child worker exits and the kernel closes those descriptors. Jobs disappear on reset, after two hours, or when the app closes.
 
-To keep ordinary Macs responsive, FontBlind allows one heavy build at a time, one static export per generated parent, eight retained verified jobs, 768 MiB of retained artifact bytes, and two concurrent sealed download snapshots. New work receives explicit local back-pressure rather than accumulating hidden workers or buffers.
+To keep ordinary machines responsive, FontBlind allows one heavy build at a time, one static export per generated parent, eight retained verified jobs, 768 MiB of retained artifact bytes, and two concurrent sealed download snapshots. New work receives explicit local back-pressure rather than accumulating hidden workers or buffers.
+
+On Linux, **Quit FontBlind** uses the private session to stop the local service and remove temporary jobs. The page does not claim closure until the loopback service has actually disappeared. A second launch reopens the existing local app rather than starting a competing server.
 
 ## Build the macOS app
 
@@ -41,11 +62,27 @@ To keep ordinary Macs responsive, FontBlind allows one heavy build at a time, on
 
 The builder creates `output/macos/FontBlind.zip`, ad-hoc signs the build, verifies nested code signatures, launches the exact frozen server, runs every product lane against it, and installs `/Applications/FontBlind.app` through a recoverable staging path. Pass `--no-install` to package without changing the installed app. It requires macOS 13 or newer and Apple command-line developer tools. The build is not Developer ID signed or notarized.
 
-The representative release corpus is fetched separately and is not bundled with the app:
+## Build the Linux packages
+
+On Garuda/Arch, run as a normal user:
+
+```bash
+./build-fontblind-linux.sh --all
+```
+
+On another modern x86_64 glibc Linux system, build the portable artifacts:
+
+```bash
+./build-fontblind-linux.sh --portable-only
+```
+
+The Linux builder freezes the same Python runtime, executes the exact all-lane release gauntlet, tests the AppDir shutdown journey, verifies checksum-pinned AppImage tooling, and creates SHA-256 receipts. When `makepkg` is available it also creates the pacman package. See `docs/LINUX_ARCHITECTURE.md` and `docs/LINUX_ACCEPTANCE.md`.
+
+The representative release corpus is fetched separately and is never bundled with the app:
 
 ```bash
 python3 tools/fetch_corpus.py
-FONTBLIND_CORPUS_DIR="$PWD/tests/corpus/cache" ./build-fontblind-app.command --no-install
+FONTBLIND_CORPUS_DIR="$PWD/tests/corpus/cache" ./build-fontblind-linux.sh --all
 ```
 
 Every corpus file is pinned by immutable upstream commit, byte size, and SHA-256. See `tests/corpus/README.md`.

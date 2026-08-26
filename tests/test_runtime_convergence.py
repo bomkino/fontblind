@@ -101,6 +101,7 @@ class CanonicalRuntimeTests(unittest.TestCase):
             b'<script src="/lab-proof.js" defer></script>',
             b'<script src="/result-contract.js" defer></script>',
             b'<script src="/instance-export.js" defer></script>',
+            b'<script src="/desktop-runtime.js" defer></script>',
             b'<script src="/app.js" defer></script>',
         )
         for script in scripts:
@@ -113,7 +114,7 @@ class CanonicalRuntimeTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(headers["Cache-Control"], "no-store, max-age=0")
             self.assertEqual(payload, expected)
-            for asset in ("/result-contract.js", "/instance-export.js"):
+            for asset in ("/result-contract.js", "/instance-export.js", "/desktop-runtime.js"):
                 status, asset_headers, asset_payload = request(server, asset)
                 self.assertEqual(status, 200)
                 self.assertIn("text/javascript", asset_headers["Content-Type"])

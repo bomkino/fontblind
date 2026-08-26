@@ -970,13 +970,77 @@ h1 em::after {
 
 footer {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
+  gap: .75rem 1.25rem;
   padding: 1.25rem 3.2vw;
   color: var(--paper);
   background: var(--ink);
   font-size: .6rem;
   font-weight: 800;
   letter-spacing: .13em;
+}
+
+.app-quit {
+  appearance: none;
+  margin: -.45rem 0;
+  padding: .45rem .65rem;
+  border: 1px solid currentColor;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 900;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.app-quit:hover,
+.app-quit:focus-visible {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.app-quit:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.app-quit[disabled] {
+  cursor: wait;
+  opacity: .65;
+}
+
+.app-quit-error {
+  flex-basis: 100%;
+  color: var(--accent);
+  line-height: 1.4;
+}
+
+.app-closed-notice {
+  position: sticky;
+  z-index: 30;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .85rem 3.2vw;
+  color: var(--ink);
+  background: var(--accent);
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.app-closed-notice span {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+body[data-app-stopped="true"] main,
+body[data-app-stopped="true"] .workbench-index {
+  opacity: .45;
+  pointer-events: none;
 }
 
 [hidden] { display: none !important; }

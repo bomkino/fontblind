@@ -519,6 +519,7 @@ class Handler(BaseHTTPRequestHandler):
             "/lab-proof.js": (WEB_ROOT / "lab-proof.js", "text/javascript; charset=utf-8"),
             "/result-contract.js": (WEB_ROOT / "result-contract.js", "text/javascript; charset=utf-8"),
             "/instance-export.js": (WEB_ROOT / "instance-export.js", "text/javascript; charset=utf-8"),
+            "/desktop-runtime.js": (WEB_ROOT / "desktop-runtime.js", "text/javascript; charset=utf-8"),
             "/favicon.svg": (WEB_ROOT / "favicon.svg", "image/svg+xml"),
             "/lab-map.css": (WEB_ROOT / "lab-map.css", "text/css; charset=utf-8"),
         }
@@ -527,7 +528,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/session":
-            self._json(HTTPStatus.OK, {"ok": True, "session": self.server.session_secret})
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "session": self.server.session_secret,
+                    "can_quit": bool(getattr(self.server, "allow_browser_shutdown", False)),
+                },
+            )
             return
 
         match = re.fullmatch(r"/download/([a-f0-9]{32})/(native|web|css|bundle)", path)
@@ -549,6 +557,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.MISDIRECTED_REQUEST, {"ok": False, "error": "Invalid local host."})
             return
         path = urlsplit(self.path).path
+        if path == "/api/shutdown":
+            if not self._session_ok():
+                self._json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Invalid local session."})
+                return
+            if not bool(getattr(self.server, "allow_browser_shutdown", False)):
+                self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found."})
+                return
+            raw_length = self.headers.get("Content-Length", "0").strip()
+            transfer_encoding = self.headers.get("Transfer-Encoding")
+            if (
+                transfer_encoding is not None
+                or not raw_length.isascii()
+                or not raw_length.isdecimal()
+                or len(raw_length) > 20
+                or raw_length != "0"
+            ):
+                self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Not found."})
+                return
+            self._json(HTTPStatus.OK, {"ok": True, "shutdown": True})
+            # BaseHTTPRequestHandler runs inside the serve_forever pool. Calling
+            # shutdown from this request thread would deadlock, and stopping
+            # before the JSON flush can truncate the final desktop response.
+            threading.Timer(0.05, self.server.shutdown).start()
+            return
         if path not in {"/api/process", "/api/lab/oblique", "/api/lab/variable"}:
             self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found."})
             return
