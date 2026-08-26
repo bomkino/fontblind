@@ -4,6 +4,7 @@
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.FontBlindResultContract = api;
+  if (root && root.document && typeof root.fetch === "function") api.installFetchGuard(root);
 })(typeof globalThis !== "undefined" ? globalThis : this, () => {
   const AXIS_NAMES = Object.freeze({ wght: "Weight", wdth: "Width", slnt: "Slant" });
   const SAFE_FILENAME = /^[a-z0-9][a-z0-9._-]{0,127}$/;
@@ -240,5 +241,79 @@
     return Object.freeze({ lane, axes, masters });
   }
 
-  return Object.freeze({ ResultContractError, validate });
+  function requestDetails(root, input, init) {
+    const value = typeof input === "string" || input instanceof URL ? input : input && input.url;
+    let path = "";
+    try {
+      path = new URL(value, root.location.href).pathname;
+    } catch (_) { /* non-URL request */ }
+    const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+    let headers;
+    try {
+      headers = new root.Headers((init && init.headers) || (input && input.headers) || undefined);
+    } catch (_) {
+      headers = new root.Headers();
+    }
+    return { path, method, headers };
+  }
+
+  function toolFor(path, method) {
+    if (method !== "POST") return null;
+    if (path === "/api/process") return "blind";
+    if (path === "/api/lab/oblique") return "oblique";
+    if (path === "/api/lab/variable") return "variable";
+    return null;
+  }
+
+  function rejectedResponse(root) {
+    return new root.Response(
+      JSON.stringify({
+        ok: false,
+        error: "The local service returned an incoherent proof or package. Outputs were discarded."
+      }),
+      {
+        status: 502,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store, max-age=0",
+          "Pragma": "no-cache"
+        }
+      }
+    );
+  }
+
+  function installFetchGuard(root) {
+    if (root.__fontBlindResultGuardInstalled) return;
+    root.__fontBlindResultGuardInstalled = true;
+    const originalFetch = root.fetch.bind(root);
+    root.fetch = async function guardedFontBlindFetch(input, init) {
+      const details = requestDetails(root, input, init);
+      const tool = toolFor(details.path, details.method);
+      const response = await originalFetch(input, init);
+      if (!tool || !response.ok) return response;
+
+      let data = null;
+      try {
+        data = await response.clone().json();
+        validate(data, tool, root.location.origin);
+        return response;
+      } catch (_) {
+        const token = data && typeof data.job === "string" && /^[a-f0-9]{32}$/.test(data.job)
+          ? data.job
+          : null;
+        const session = details.headers.get("X-FontBlind-Session");
+        if (token && session) {
+          void originalFetch(`/api/jobs/${token}`, {
+            method: "DELETE",
+            headers: { "X-FontBlind-Session": session },
+            cache: "no-store",
+            credentials: "same-origin"
+          }).catch(() => {});
+        }
+        return rejectedResponse(root);
+      }
+    };
+  }
+
+  return Object.freeze({ ResultContractError, installFetchGuard, validate });
 });
