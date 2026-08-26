@@ -16,6 +16,7 @@ from fontblind_protocol import (
     FontSetTooLargeError,
     pack_font_set,
     read_font_set,
+    read_font_set_header,
 )
 
 
@@ -23,6 +24,10 @@ class FontSetProtocolTests(unittest.TestCase):
     def test_roundtrip_preserves_raw_donor_bytes(self) -> None:
         payloads = [b"\x00\x01\x00\x00first", b"OTTOsecond"]
         body = pack_font_set(payloads)
+        stream = io.BytesIO(body)
+        lengths = read_font_set_header(stream, str(len(body)))
+        self.assertEqual(lengths, tuple(map(len, payloads)))
+        self.assertEqual(stream.read(), b"".join(payloads))
         self.assertEqual(read_font_set(io.BytesIO(body), str(len(body))), payloads)
         self.assertLess(len(body), sum(map(len, payloads)) + 32)
 

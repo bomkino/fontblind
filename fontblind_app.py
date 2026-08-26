@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Callable, Sequence
 from urllib.parse import urlsplit
 
 from fontblind_pipeline import PublicBuildResult
@@ -32,9 +32,10 @@ from fontblind_protocol import (
     MAX_FONT_SET_BYTES,
     FontSetError,
     FontSetTooLargeError,
-    read_font_set,
+    read_font_set_header,
 )
 from fontblind_policy import BrowserCompatibilityError, ZeroIdPolicyError
+from fontblind_stream import StreamInterruptedError, copy_exact
 from fontblind_surgical import FontBlindError
 from fontblind_web import WebBuildError
 
@@ -127,11 +128,30 @@ class JobStore:
     def create(self, payload: bytes) -> tuple[str, Job]:
         return self._create("blind", [payload], {})
 
+    def create_stream(self, source: BinaryIO, length: int) -> tuple[str, Job]:
+        return self._create_stream("blind", source, [length], {})
+
     def create_oblique(self, payload: bytes, angle: float, output: str = "static") -> tuple[str, Job]:
         return self._create("oblique", [payload], {"angle": angle, "output": output})
 
+    def create_oblique_stream(
+        self,
+        source: BinaryIO,
+        length: int,
+        angle: float,
+        output: str = "static",
+    ) -> tuple[str, Job]:
+        return self._create_stream("oblique", source, [length], {"angle": angle, "output": output})
+
     def create_variable(self, payloads: list[bytes]) -> tuple[str, Job]:
         return self._create("variable", payloads, {})
+
+    def create_variable_stream(
+        self,
+        source: BinaryIO,
+        lengths: Sequence[int],
+    ) -> tuple[str, Job]:
+        return self._create_stream("variable", source, lengths, {})
 
     def _worker_command(
         self,
@@ -154,27 +174,68 @@ class JobStore:
             return [sys.executable, "--fontblind-worker", *arguments]
         return [sys.executable, str(APP_ROOT / "fontblind_worker.py"), *arguments]
 
+    def _validated_source_lengths(self, mode: str, lengths: Sequence[int]) -> tuple[int, ...]:
+        values = tuple(int(length) for length in lengths)
+        expected = range(2, 13) if mode == "variable" else range(1, 2)
+        if len(values) not in expected:
+            raise FontBlindError("Invalid local source count")
+        if any(length <= 0 or length > MAX_UPLOAD_BYTES for length in values):
+            raise FontBlindError("Invalid local source length")
+        if sum(values) > (MAX_VARIABLE_TOTAL_BYTES if mode == "variable" else MAX_UPLOAD_BYTES):
+            raise FontBlindError("Local source set is too large")
+        return values
+
     def _create(self, mode: str, payloads: list[bytes], options: dict[str, object]) -> tuple[str, Job]:
+        values = tuple(bytes(payload) for payload in payloads)
+        lengths = self._validated_source_lengths(mode, [len(payload) for payload in values])
+
+        def populate(streams: list[BinaryIO]) -> None:
+            for target, payload, length in zip(streams, values, lengths):
+                written = target.write(payload)
+                if written != length:
+                    raise OSError("Could not write the local source to its anonymous descriptor")
+
+        return self._create_job(mode, len(values), options, populate)
+
+    def _create_stream(
+        self,
+        mode: str,
+        source: BinaryIO,
+        lengths: Sequence[int],
+        options: dict[str, object],
+    ) -> tuple[str, Job]:
+        values = self._validated_source_lengths(mode, lengths)
+
+        def populate(streams: list[BinaryIO]) -> None:
+            for target, length in zip(streams, values):
+                copy_exact(source, target, length)
+
+        return self._create_job(mode, len(values), options, populate)
+
+    def _create_job(
+        self,
+        mode: str,
+        source_count: int,
+        options: dict[str, object],
+        populate_sources: Callable[[list[BinaryIO]], None],
+    ) -> tuple[str, Job]:
         if self._closed.is_set():
             raise FontBlindError("FontBlind is shutting down")
-        if not payloads:
-            raise FontBlindError("No font payloads were provided")
-        self.expire()
         token = uuid.uuid4().hex
         job_dir = self.root / token
         result_path = job_dir / ".result.json"
         try:
             job_dir.mkdir(mode=0o700)
-            # POSIX TemporaryFile has no directory entry. Workers inherit only
-            # anonymous descriptors plus a parent-liveness pipe; source paths
-            # never exist, including for multi-master Lab jobs.
+            # POSIX TemporaryFile has no directory entry. Request bodies are
+            # copied into these descriptors in bounded chunks, then workers
+            # inherit only descriptors plus a parent-liveness pipe.
             with ExitStack() as stack:
                 source_streams = [
                     stack.enter_context(tempfile.TemporaryFile(prefix=".fontblind-source-", dir=job_dir))
-                    for _payload in payloads
+                    for _ in range(source_count)
                 ]
-                for source_stream, payload in zip(source_streams, payloads):
-                    source_stream.write(payload)
+                populate_sources(source_streams)
+                for source_stream in source_streams:
                     source_stream.flush()
                     source_stream.seek(0)
                 source_fds = [source_stream.fileno() for source_stream in source_streams]
@@ -384,23 +445,23 @@ class Handler(BaseHTTPRequestHandler):
         self._headers(HTTPStatus.OK, kind, len(payload))
         self.wfile.write(payload)
 
-    def _read_body(self, maximum: int, empty_error: str) -> bytes | None:
-        raw_length = self.headers.get("Content-Length")
-        try:
-            length = int(raw_length or "0")
-        except ValueError:
-            length = 0
+    def _body_length(self, maximum: int, empty_error: str) -> int | None:
+        raw_value = self.headers.get("Content-Length")
+        if raw_value is None:
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": empty_error})
+            return None
+        value = raw_value.strip()
+        if not value or not value.isascii() or not value.isdecimal():
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local upload framing."})
+            return None
+        length = int(value)
         if length <= 0:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": empty_error})
             return None
         if length > maximum:
             self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Local input is too large."})
             return None
-        payload = self.rfile.read(length)
-        if len(payload) != length:
-            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "The local upload was interrupted."})
-            return None
-        return payload
+        return length
 
     def _public_result(self, token: str, job: Job) -> None:
         public = job.result.to_public_dict()
@@ -481,12 +542,10 @@ class Handler(BaseHTTPRequestHandler):
                     if media_type != "application/octet-stream":
                         self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local upload."})
                         return
-                    payload = self._read_body(MAX_UPLOAD_BYTES, "Choose a TTF or OTF first.")
-                    if payload is None:
-                        return
-                    if path == "/api/process":
-                        token, job = self.server.jobs.create(payload)
-                    else:
+
+                    angle = 12.0
+                    output = "static"
+                    if path == "/api/lab/oblique":
                         try:
                             angle = float(self.headers.get("X-FontBlind-Angle", "12"))
                         except ValueError:
@@ -498,20 +557,31 @@ class Handler(BaseHTTPRequestHandler):
                         if output not in {"static", "slnt"}:
                             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Choose a valid Oblique output."})
                             return
-                        token, job = self.server.jobs.create_oblique(payload, angle, output)
+
+                    length = self._body_length(MAX_UPLOAD_BYTES, "Choose a TTF or OTF first.")
+                    if length is None:
+                        return
+                    try:
+                        if path == "/api/process":
+                            token, job = self.server.jobs.create_stream(self.rfile, length)
+                        else:
+                            token, job = self.server.jobs.create_oblique_stream(self.rfile, length, angle, output)
+                    except StreamInterruptedError:
+                        self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "The local upload was interrupted."})
+                        return
                 else:
                     if media_type != FONT_SET_MEDIA_TYPE:
                         self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local Lab request."})
                         return
                     try:
-                        payloads = read_font_set(self.rfile, self.headers.get("Content-Length"))
+                        lengths = read_font_set_header(self.rfile, self.headers.get("Content-Length"))
+                        token, job = self.server.jobs.create_variable_stream(self.rfile, lengths)
                     except FontSetTooLargeError as exc:
                         self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": str(exc)})
                         return
-                    except FontSetError:
+                    except (FontSetError, StreamInterruptedError):
                         self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local Lab request."})
                         return
-                    token, job = self.server.jobs.create_variable(payloads)
             except BrowserCompatibilityError:
                 self._json(
                     HTTPStatus.UNPROCESSABLE_ENTITY,

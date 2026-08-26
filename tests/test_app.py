@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import http.client
 import inspect
@@ -24,6 +25,7 @@ from fontblind_app import (
     _scavenge_stale_roots,
 )
 from fontblind_protocol import FONT_SET_MEDIA_TYPE, pack_font_set
+from fontblind_stream import COPY_CHUNK_BYTES
 from fontblind_surgical import FontBlindError
 from fontblind_worker import main as worker_main
 
@@ -102,6 +104,50 @@ class SourceLifecycleTests(unittest.TestCase):
                 self.assertRaises(FontBlindError),
             ):
                 store.create(payload)
+        finally:
+            store.close()
+
+    def test_parent_streams_request_into_anonymous_descriptor_in_bounded_chunks(self) -> None:
+        store = JobStore()
+        payload = (b"private-streamed-font-bytes" * 100_000) + b"end"
+        requests: list[int] = []
+        test_case = self
+
+        class BoundedReader(io.BytesIO):
+            def read(self, size: int = -1) -> bytes:
+                requests.append(size)
+                test_case.assertGreater(size, 0)
+                test_case.assertLessEqual(size, COPY_CHUNK_BYTES)
+                return super().read(size)
+
+        class RejectedWorker:
+            def __init__(self, command: list[str], **_kwargs: object) -> None:
+                source = Path(command[-1])
+                test_case.assertEqual(source.parent, Path("/dev/fd"))
+                test_case.assertEqual(source.read_bytes(), payload)
+                test_case.assertFalse(any(store.root.glob("*/source.font")))
+                test_case.assertFalse(any(store.root.glob("*/.fontblind-source-*")))
+                self.returncode = 4
+
+            def wait(self, timeout: float | None = None) -> int:
+                return self.returncode
+
+            def poll(self) -> int:
+                return self.returncode
+
+            def terminate(self) -> None:
+                self.returncode = -15
+
+            def kill(self) -> None:
+                self.returncode = -9
+
+        try:
+            with (
+                mock.patch("fontblind_app.subprocess.Popen", RejectedWorker),
+                self.assertRaises(FontBlindError),
+            ):
+                store.create_stream(BoundedReader(payload), len(payload))
+            self.assertGreater(len(requests), 1)
         finally:
             store.close()
 

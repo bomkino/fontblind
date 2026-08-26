@@ -119,6 +119,15 @@ function buildFontSetBody(files) {
   return new Blob([header, ...files], { type: FONT_SET_MEDIA_TYPE });
 }
 
+async function fileLooksLikeOpenType(file) {
+  const header = await file.slice(0, 4).arrayBuffer();
+  try {
+    return looksLikeOpenType(header);
+  } finally {
+    wipe(header);
+  }
+}
+
 async function fileLooksLikeTrueType(file) {
   const header = await file.slice(0, 4).arrayBuffer();
   try {
@@ -568,11 +577,12 @@ async function processSingle(name, file, endpoint, extraHeaders = {}) {
   }
 
   setView(name, "processing");
-  let buffer = null;
+  let body = file;
+  file = null;
   try {
-    buffer = await file.arrayBuffer();
-    file = null;
-    const validFont = name === "oblique" ? looksLikeTrueType(buffer) : looksLikeOpenType(buffer);
+    const validFont = name === "oblique"
+      ? await fileLooksLikeTrueType(body)
+      : await fileLooksLikeOpenType(body);
     if (!validFont) {
       const message = name === "oblique"
         ? "Oblique Lab accepts standalone TrueType fonts only. No output was kept."
@@ -582,9 +592,8 @@ async function processSingle(name, file, endpoint, extraHeaders = {}) {
     const data = await postLocal(endpoint, {
       "Content-Type": "application/octet-stream",
       ...extraHeaders
-    }, buffer);
-    wipe(buffer);
-    buffer = null;
+    }, body);
+    body = null;
     const isSlantVariable = name === "oblique" && Array.isArray(data.axes) && data.axes.some((axis) => axis.tag === "slnt");
     if (name === "oblique") configureObliqueResult(isSlantVariable);
     const context = name === "oblique"
@@ -594,8 +603,7 @@ async function processSingle(name, file, endpoint, extraHeaders = {}) {
       : null;
     await acceptResult(name, data, context);
   } catch (error) {
-    wipe(buffer);
-    buffer = null;
+    body = null;
     fail(name, error instanceof SafeMessage && error.message ? error.message : DEFAULT_ERRORS[name]);
   }
 }

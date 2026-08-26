@@ -29,6 +29,7 @@ py-modules = [
   "fontblind_outline",
   "fontblind_pipeline",
   "fontblind_policy",
+  "fontblind_stream",
   "fontblind_surgical",
   "fontblind_web",
   "fontblind_worker",

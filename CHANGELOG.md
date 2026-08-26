@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Replace Variable Lab's base64/JSON donor upload with a bounded binary font-set envelope.
+- Stream every browser upload into anonymous descriptors in 1 MB chunks instead of buffering whole fonts in browser and server memory.
 - Serialize heavy local builds and return explicit back-pressure instead of competing workers.
 - Require every cross-process and browser-visible proof to be a real, passing Boolean.
 - Add keyboard-operable anonymous master maps for `slnt`, `wght`, and `wdth` results.

@@ -23,6 +23,8 @@ Variable Lab now sends one binary `application/vnd.fontblind.font-set` body:
 
 The server validates the declared body length, count, every donor length, aggregate length, signature, and exact framing before compilation. It rejects malformed, interrupted, oversized, or trailing data. The envelope removes base64 expansion and avoids the second full JSON string copy in the browser.
 
+After the small header is accepted, donor bytes stream directly from the local request into anonymous descriptors in 1 MB chunks. Blind and Oblique uploads use the same bounded path. The browser reads only each file's four-byte SFNT signature before handing the original `File` or composite `Blob` to `fetch`; the Python parent never materializes a complete browser upload as a `bytes` list.
+
 ## One heavy worker at a time
 
 Static files and completed downloads remain concurrent. Font processing is serialized with a non-blocking local worker gate. A second build receives HTTP 429 instead of quietly competing for hundreds of megabytes of memory. This is deliberate back-pressure, not a queue whose stale work can surprise the user.
