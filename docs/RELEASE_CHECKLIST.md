@@ -26,6 +26,7 @@ The exact final commit must pass all of the following in `.github/workflows/test
 - `python tools/fetch_corpus.py --verify-only` passes after fetch.
 - Corpus bytes remain outside the repository and application bundle.
 - Linux and macOS produce the expected accept/refuse outcomes.
+- Static candidates extracted from an existing variable font remain a refusal when a rebuilt donor location differs even slightly in geometry; the release gate must not soften this into approximate acceptance.
 
 ### Container and privacy integrity
 
