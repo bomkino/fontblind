@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, improve/inspect-instance-proof-3.6]
   pull_request:
   workflow_dispatch:
 
