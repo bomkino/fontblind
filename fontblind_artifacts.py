@@ -11,7 +11,6 @@ import zipfile
 from pathlib import Path, PurePath
 from typing import BinaryIO, Mapping
 
-from fontTools.misc.roundTools import otRound
 from fontTools.ttLib import TTFont
 
 from fontblind_contract import ArtifactSeal, BuildResultContractError, _OUTPUT_MAX_BYTES
@@ -222,7 +221,7 @@ def _expected_css_fields(
             selected = dict(location) if isinstance(location, Mapping) else {}
             slant = float(selected.get("slnt", float(font["post"].italicAngle) if "post" in font else 0.0))
             style = "normal" if abs(slant) <= 1 / 65536 else f"oblique {_css_number(abs(slant))}deg"
-            stretch = _css_number(float(selected["wdth"])) + "%" if "wdth" in selected else None
+            stretch = _css_number(float(selected["wdth"])) + "%" if "wdth" in selected else _width_percent(width_class)
             return {"format": "woff2", "weight": str(weight_class), "style": style, "stretch": stretch}
 
         # Blind preserves the source font model and uses fontblind_web.make_css.
