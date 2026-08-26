@@ -28,7 +28,8 @@ jobs:
           cache: pip
       - name: Materialize reviewed source changes
         run: |
-          base64 --decode .linux-materialize/payload.tar.gz.b64 | tar -xzf -
+          test "$(cat .linux-materialize/part-* | sha256sum | awk '{print $1}')" = "b71a6875ceedea1983e36cde7b161e41b76c53843f9c95eb03340929eb45179f"
+          cat .linux-materialize/part-* | base64 --decode | tar -xzf -
           rm -rf .linux-materialize
           rm -f .github/workflows/export-linux-worktree.yml
           rm -f .github/workflows/linux-materialize.yml
