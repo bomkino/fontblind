@@ -9,25 +9,17 @@ import stat
 import tempfile
 import zipfile
 from pathlib import Path, PurePath
-from typing import BinaryIO
+from typing import BinaryIO, Mapping
 
-from fontTools.ttLib import TTFont, TTLibError
+from fontTools.misc.roundTools import otRound
+from fontTools.ttLib import TTFont
 
-from fontblind_contract import (
-    ArtifactSeal,
-    BuildResultContractError,
-    _OUTPUT_MAX_BYTES,
-)
-from fontblind_pipeline import (
-    OutputFile,
-    PublicBuildResult,
-    _decode_woff2,
-    _verify_woff2_roundtrip,
-)
-from fontblind_web import WebBuildError
+from fontblind_contract import ArtifactSeal, BuildResultContractError, _OUTPUT_MAX_BYTES
+from fontblind_pipeline import OutputFile, PublicBuildResult, _decode_woff2, _verify_woff2_roundtrip
 
 
 _VARIATION_TABLES = frozenset({"avar", "cvar", "fvar", "gvar", "HVAR", "MVAR", "STAT", "VVAR"})
+_WIDTH_PERCENT = {1: 50.0, 2: 62.5, 3: 75.0, 4: 87.5, 5: 100.0, 6: 112.5, 7: 125.0, 8: 150.0, 9: 200.0}
 _CSS_NUMBER = r"(?:0|[1-9]\d{0,3})(?:\.\d{1,4})?"
 _CSS_WEIGHT = r"(?:[1-9]\d{0,2}|1000)(?: (?:[1-9]\d{0,2}|1000))?"
 _CSS_PERCENT = rf"{_CSS_NUMBER}%(?: {_CSS_NUMBER}%)?"
@@ -59,12 +51,7 @@ def _artifact_path(output_root: Path, item: OutputFile) -> tuple[Path, os.stat_r
         metadata = target.lstat()
     except OSError as exc:
         raise BuildResultContractError("worker omitted a declared output file") from exc
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or stat.S_ISLNK(metadata.st_mode)
-        or metadata.st_nlink != 1
-        or not _owned_by_process(metadata)
-    ):
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or metadata.st_nlink != 1 or not _owned_by_process(metadata):
         raise BuildResultContractError("worker returned a non-regular, linked, or foreign output file")
     try:
         resolved = target.resolve(strict=True)
@@ -93,30 +80,16 @@ def _axis_rows(font: TTFont) -> tuple[tuple[str, float, float, float], ...]:
 
 
 def _expected_axis_rows(result: PublicBuildResult) -> tuple[tuple[str, float, float, float], ...]:
-    return tuple(
-        (
-            str(axis["tag"]),
-            float(axis["min"]),
-            float(axis["default"]),
-            float(axis["max"]),
-        )
-        for axis in result.axes
-    )
+    return tuple((str(axis["tag"]), float(axis["min"]), float(axis["default"]), float(axis["max"])) for axis in result.axes)
 
 
-def _axis_rows_match(
-    actual: tuple[tuple[str, float, float, float], ...],
-    expected: tuple[tuple[str, float, float, float], ...],
-) -> bool:
+def _axis_rows_match(actual: tuple[tuple[str, float, float, float], ...], expected: tuple[tuple[str, float, float, float], ...]) -> bool:
     if len(actual) != len(expected):
         return False
     for actual_row, expected_row in zip(actual, expected):
         if actual_row[0] != expected_row[0]:
             return False
-        if any(
-            not math.isclose(actual_value, expected_value, rel_tol=0.0, abs_tol=1e-6)
-            for actual_value, expected_value in zip(actual_row[1:], expected_row[1:])
-        ):
+        if any(not math.isclose(a, e, rel_tol=0.0, abs_tol=1e-6) for a, e in zip(actual_row[1:], expected_row[1:])):
             return False
     return True
 
@@ -167,15 +140,126 @@ def _validate_font(path: Path, result: PublicBuildResult, kind: str) -> None:
             raise BuildResultContractError("generated font axes disagree with the public result")
 
         if result.checks.get("variation_tables_removed") is True:
-            retained = sorted(set(font.keys()) & set(_VARIATION_TABLES))
-            if retained:
+            if set(font.keys()) & set(_VARIATION_TABLES):
                 raise BuildResultContractError("frozen output retained variable-font machinery")
             _assert_no_variable_layout(font)
     finally:
         font.close()
 
 
-def _validate_css(path: Path, web_filename: str) -> None:
+def _css_number(value: float) -> str:
+    return f"{float(value):.4f}".rstrip("0").rstrip(".")
+
+
+def _width_percent(width_class: int) -> str:
+    return _css_number(_WIDTH_PERCENT.get(max(1, min(9, int(width_class))), 100.0)) + "%"
+
+
+def _font_axis_map(font: TTFont) -> dict[str, tuple[float, float, float]]:
+    return {row[0]: (row[1], row[2], row[3]) for row in _axis_rows(font)}
+
+
+def _inferred_mode(result: PublicBuildResult) -> str:
+    checks = result.checks
+    if checks.get("selected_location_verified") is True:
+        return "instance"
+    if checks.get("donor_compatibility_verified") is True:
+        return "variable"
+    if checks.get("declared_shear_verified") is True:
+        return "oblique"
+    return "blind"
+
+
+def _expected_css_fields(
+    native: Path,
+    result: PublicBuildResult,
+    mode: str | None,
+    options: Mapping[str, object] | None,
+) -> dict[str, str | None]:
+    font = TTFont(str(native), lazy=False, recalcBBoxes=False, recalcTimestamp=False)
+    try:
+        axes = _font_axis_map(font)
+        os2 = font["OS/2"]
+        weight_class = max(1, min(1000, int(os2.usWeightClass)))
+        width_class = max(1, min(9, int(os2.usWidthClass)))
+        selected_mode = mode or _inferred_mode(result)
+        values = dict(options or {})
+
+        if selected_mode == "variable":
+            weight = (
+                f"{_css_number(axes['wght'][0])} {_css_number(axes['wght'][2])}"
+                if "wght" in axes
+                else str(weight_class)
+            )
+            stretch = (
+                f"{_css_number(axes['wdth'][0])}% {_css_number(axes['wdth'][2])}%"
+                if "wdth" in axes
+                else _width_percent(width_class)
+            )
+            return {"format": "woff2-variations", "weight": weight, "style": "normal", "stretch": stretch}
+
+        if selected_mode == "oblique":
+            output = str(values.get("output", "slnt" if "slnt" in axes else "static"))
+            if output == "slnt":
+                angle = abs(float(values.get("angle", axes.get("slnt", (0.0, 0.0, 0.0))[0])))
+                return {
+                    "format": "woff2-variations",
+                    "weight": str(weight_class),
+                    "style": f"oblique 0deg {_css_number(angle)}deg",
+                    "stretch": _width_percent(width_class),
+                }
+            post_angle = abs(float(font["post"].italicAngle)) if "post" in font else 0.0
+            angle = abs(float(values.get("angle", post_angle)))
+            return {
+                "format": "woff2",
+                "weight": str(weight_class),
+                "style": f"oblique {_css_number(angle)}deg",
+                "stretch": _width_percent(width_class),
+            }
+
+        if selected_mode == "instance":
+            location = values.get("location")
+            selected = dict(location) if isinstance(location, Mapping) else {}
+            slant = float(selected.get("slnt", float(font["post"].italicAngle) if "post" in font else 0.0))
+            style = "normal" if abs(slant) <= 1 / 65536 else f"oblique {_css_number(abs(slant))}deg"
+            stretch = _css_number(float(selected["wdth"])) + "%" if "wdth" in selected else None
+            return {"format": "woff2", "weight": str(weight_class), "style": style, "stretch": stretch}
+
+        # Blind preserves the source font model and uses fontblind_web.make_css.
+        weight = (
+            f"{int(round(axes['wght'][0]))} {int(round(axes['wght'][2]))}"
+            if "wght" in axes and axes["wght"][0] != axes["wght"][2]
+            else str(int(round(axes["wght"][0])))
+            if "wght" in axes
+            else str(weight_class)
+        )
+        stretch = (
+            f"{axes['wdth'][0]:g}% {axes['wdth'][2]:g}%"
+            if "wdth" in axes and axes["wdth"][0] != axes["wdth"][2]
+            else f"{axes['wdth'][0]:g}%"
+            if "wdth" in axes
+            else _width_percent(width_class)
+        )
+        axis_tags = set(axes)
+        if axis_tags & {"ital", "slnt"}:
+            style = "oblique"
+        elif int(os2.fsSelection) & 0x0001 or int(font["head"].macStyle) & 0x0002:
+            style = "italic"
+        else:
+            style = "normal"
+        return {"format": "woff2", "weight": weight, "style": style, "stretch": stretch}
+    finally:
+        font.close()
+
+
+def _validate_css(
+    path: Path,
+    web_filename: str,
+    native: Path,
+    result: PublicBuildResult,
+    mode: str | None,
+    options: Mapping[str, object] | None,
+) -> None:
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -186,15 +270,20 @@ def _validate_css(path: Path, web_filename: str) -> None:
     contract = re.compile(
         rf'@font-face \{{\n'
         rf'  font-family: "Untitled";\n'
-        rf'  src: url\("{filename}"\) format\("(?:woff2|woff2-variations)"\);\n'
-        rf'  font-weight: {_CSS_WEIGHT};\n'
-        rf'  font-style: {_CSS_STYLE};\n'
-        rf'  font-stretch: {_CSS_PERCENT};\n'
+        rf'  src: url\("{filename}"\) format\("(?P<format>woff2|woff2-variations)"\);\n'
+        rf'  font-weight: (?P<weight>{_CSS_WEIGHT});\n'
+        rf'  font-style: (?P<style>{_CSS_STYLE});\n'
+        rf'  font-stretch: (?P<stretch>{_CSS_PERCENT});\n'
         rf'  font-display: swap;\n'
         rf'\}}\n'
     )
-    if contract.fullmatch(text) is None:
+    match = contract.fullmatch(text)
+    if match is None:
         raise BuildResultContractError("worker returned CSS outside the exact zero-ID package contract")
+    expected = _expected_css_fields(native, result, mode, options)
+    for field in ("format", "weight", "style", "stretch"):
+        if expected[field] is not None and match.group(field) != expected[field]:
+            raise BuildResultContractError(f"generated CSS {field} disagrees with the verified font or request")
 
 
 def _validate_font_pair(native: Path, web: Path, work_root: Path) -> None:
@@ -212,11 +301,7 @@ def _validate_bundle(path: Path, output_root: Path, result: PublicBuildResult) -
     try:
         with zipfile.ZipFile(path, "r") as archive:
             infos = archive.infolist()
-            if (
-                archive.comment
-                or [info.filename for info in infos] != expected
-                or len({info.filename for info in infos}) != len(infos)
-            ):
+            if archive.comment or [info.filename for info in infos] != expected or len({info.filename for info in infos}) != len(infos):
                 raise BuildResultContractError("worker returned an unexpected package manifest")
             for info in infos:
                 mode = (info.external_attr >> 16) & 0xFFFF
@@ -233,13 +318,7 @@ def _validate_bundle(path: Path, output_root: Path, result: PublicBuildResult) -
                     raise BuildResultContractError("worker returned non-canonical or unsafe package metadata")
                 source = output_root / info.filename
                 source_size = source.stat().st_size
-                member_kind = (
-                    "css"
-                    if info.filename == result.css.filename
-                    else "web"
-                    if info.filename == result.web.filename
-                    else "native"
-                )
+                member_kind = "css" if info.filename == result.css.filename else "web" if info.filename == result.web.filename else "native"
                 if info.file_size != source_size or info.file_size > _OUTPUT_MAX_BYTES[member_kind]:
                     raise BuildResultContractError("worker returned a package member with the wrong size")
                 with archive.open(info, "r") as member:
@@ -252,7 +331,13 @@ def _validate_bundle(path: Path, output_root: Path, result: PublicBuildResult) -
         raise BuildResultContractError("worker returned an unreadable or unsupported package") from exc
 
 
-def validate_job_artifacts(job_dir: Path, result: PublicBuildResult) -> dict[str, ArtifactSeal]:
+def validate_job_artifacts(
+    job_dir: Path,
+    result: PublicBuildResult,
+    *,
+    mode: str | None = None,
+    options: Mapping[str, object] | None = None,
+) -> dict[str, ArtifactSeal]:
     """Inspect actual files after worker exit and before any public token is exposed."""
     root = Path(job_dir)
     try:
@@ -263,18 +348,9 @@ def validate_job_artifacts(job_dir: Path, result: PublicBuildResult) -> dict[str
         output_root = output_dir.resolve(strict=True)
     except OSError as exc:
         raise BuildResultContractError("worker returned no owned output directory") from exc
-    if (
-        not stat.S_ISDIR(root_metadata.st_mode)
-        or stat.S_ISLNK(root_metadata.st_mode)
-        or not _owned_by_process(root_metadata)
-    ):
+    if not stat.S_ISDIR(root_metadata.st_mode) or stat.S_ISLNK(root_metadata.st_mode) or not _owned_by_process(root_metadata):
         raise BuildResultContractError("worker job root is not an owned directory")
-    if (
-        not stat.S_ISDIR(output_metadata.st_mode)
-        or stat.S_ISLNK(output_metadata.st_mode)
-        or not _owned_by_process(output_metadata)
-        or output_root.parent != root_resolved
-    ):
+    if not stat.S_ISDIR(output_metadata.st_mode) or stat.S_ISLNK(output_metadata.st_mode) or not _owned_by_process(output_metadata) or output_root.parent != root_resolved:
         raise BuildResultContractError("worker output directory escaped its owned job")
 
     expected_names = {getattr(result, kind).filename for kind in ("native", "web", "css", "bundle")}
@@ -293,9 +369,7 @@ def validate_job_artifacts(job_dir: Path, result: PublicBuildResult) -> dict[str
         paths[kind] = path
         if kind in {"native", "web"}:
             _validate_font(path, result, kind)
-        elif kind == "css":
-            _validate_css(path, result.web.filename)
-        else:
+        elif kind == "bundle":
             with path.open("rb") as stream:
                 if stream.read(4) != b"PK\x03\x04":
                     raise BuildResultContractError("worker returned a non-ZIP package")
@@ -309,6 +383,7 @@ def validate_job_artifacts(job_dir: Path, result: PublicBuildResult) -> dict[str
             modified_ns=int(metadata.st_mtime_ns),
         )
 
+    _validate_css(paths["css"], result.web.filename, paths["native"], result, mode, options)
     _validate_font_pair(paths["native"], paths["web"], root_resolved)
     _validate_bundle(paths["bundle"], output_root, result)
     return seals
@@ -327,12 +402,7 @@ def verify_artifact_seal(job_dir: Path, item: OutputFile, seal: ArtifactSeal) ->
         path, metadata = _artifact_path(output_dir, item)
     except (OSError, BuildResultContractError):
         return False
-    if (
-        int(metadata.st_size) != seal.size
-        or int(metadata.st_dev) != seal.device
-        or int(metadata.st_ino) != seal.inode
-        or int(metadata.st_mtime_ns) != seal.modified_ns
-    ):
+    if int(metadata.st_size) != seal.size or int(metadata.st_dev) != seal.device or int(metadata.st_ino) != seal.inode or int(metadata.st_mtime_ns) != seal.modified_ns:
         return False
     try:
         return _sha256_file(path) == seal.sha256
