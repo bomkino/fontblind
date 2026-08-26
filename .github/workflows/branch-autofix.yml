@@ -44,7 +44,12 @@ jobs:
           new_guard = '    if count != 1 and not (label == "test app first variable media type" and count == 2):\n        raise RuntimeError(f"{label}: expected one match, found {count}")\n'
           if part3.count(old_guard) != 1:
               raise RuntimeError("part3 replace guard drifted")
-          part3_path.write_text(part3.replace(old_guard, new_guard, 1), encoding="utf-8")
+          part3 = part3.replace(old_guard, new_guard, 1)
+          old_contributing = "    '''```bash\npython -m unittest discover -s tests -v\n```\n''',\n"
+          new_contributing = "    '''```bash\npython3 -m venv .venv\n.venv/bin/python -m pip install -r requirements.txt\n.venv/bin/python -m unittest discover -s tests -v\n```\n''',\n"
+          if part3.count(old_contributing) != 1:
+              raise RuntimeError("part3 contributing source drifted")
+          part3_path.write_text(part3.replace(old_contributing, new_contributing, 1), encoding="utf-8")
           PY
       - name: Apply focused patches
         run: |
