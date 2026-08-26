@@ -40,7 +40,7 @@ INSTANCE_CSS_NAME = "fontblind-instance.css"
 INSTANCE_BUNDLE_NAME = "fontblind-instance-package.zip"
 
 _ALLOWED_AXES = frozenset({"wght", "wdth", "slnt"})
-_VARIATION_TABLES = frozenset({"avar", "cvar", "fvar", "gvar", "HVAR", "MVAR", "VVAR"})
+_VARIATION_TABLES = frozenset({"avar", "cvar", "fvar", "gvar", "HVAR", "MVAR", "STAT", "VVAR"})
 _WIDTH_PERCENT = {
     1: 50.0,
     2: 62.5,
@@ -129,6 +129,21 @@ def _selected_values(font: TTFont, location: Mapping[str, float]) -> tuple[float
     return weight, width, slant
 
 
+def _drop_variation_tables(font: TTFont) -> None:
+    for tag in _VARIATION_TABLES:
+        if tag in font:
+            del font[tag]
+
+
+def _assert_no_variable_layout(font: TTFont) -> None:
+    """Reject unresolved variation stores or feature substitutions."""
+    if "GDEF" in font and getattr(font["GDEF"].table, "VarStore", None) is not None:
+        raise StaticInstanceError("Static export retained a GDEF variation store.")
+    for tag in ("GSUB", "GPOS"):
+        if tag in font and getattr(font[tag].table, "FeatureVariations", None) is not None:
+            raise StaticInstanceError("Static export retained variable layout substitutions.")
+
+
 def _set_static_metadata(font: TTFont, location: Mapping[str, float]) -> tuple[float, float, float]:
     weight, width, slant = _selected_values(font, location)
     os2 = font["OS/2"]
@@ -201,6 +216,10 @@ def _assert_static_zero_id(path: Path) -> None:
         raise StaticInstanceError("The frozen instance failed the zero-ID metadata audit.")
     font = _load(path)
     try:
+        retained = sorted(set(font.reader.keys()) & set(_VARIATION_TABLES))
+        if retained:
+            raise StaticInstanceError("The frozen instance retained variable-font machinery.")
+        _assert_no_variable_layout(font)
         unexpected = sorted(set(font.reader.keys()) - set(FUNCTIONAL_TABLES))
         if unexpected:
             raise StaticInstanceError("The frozen instance retained an unreviewed font table.")
@@ -230,6 +249,7 @@ def _assert_matching_static(reference_path: Path, output_path: Path) -> None:
                 raise StaticInstanceError("Static export changed selected-location geometry.")
         if set(output.reader.keys()) & set(_VARIATION_TABLES):
             raise StaticInstanceError("Static export retained variable-font machinery.")
+        _assert_no_variable_layout(output)
     finally:
         reference.close()
         output.close()
@@ -260,6 +280,21 @@ def _verify_selected_metadata(path: Path, location: Mapping[str, float]) -> None
             expected_angle = slant if is_oblique else 0.0
             if abs(float(font["post"].italicAngle) - expected_angle) > 1 / 65536:
                 raise StaticInstanceError("Static export emitted an incorrect slant angle.")
+        expected_caret_run = int(otRound(1000.0 * math.tan(math.radians(-slant)))) if is_oblique else 0
+        hhea = font["hhea"]
+        if (
+            int(hhea.caretSlopeRise) != 1000
+            or int(hhea.caretSlopeRun) != expected_caret_run
+            or int(hhea.caretOffset) != 0
+        ):
+            raise StaticInstanceError("Static export emitted an incorrect text-caret slope.")
+        styles = {
+            record.toUnicode()
+            for record in font["name"].names
+            if int(record.nameID) in {2, 17}
+        }
+        if any("Italic" in style for style in styles):
+            raise StaticInstanceError("A mechanical slant retained an Italic style label.")
     finally:
         font.close()
 
@@ -325,6 +360,8 @@ def build_static_instance_outputs(
             variable_font.close()
 
         try:
+            _drop_variation_tables(reference)
+            _assert_no_variable_layout(reference)
             reference.flavor = None
             reference.recalcTimestamp = False
             reference.save(str(reference_stage), reorderTables=True)
