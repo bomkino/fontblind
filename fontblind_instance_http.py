@@ -24,7 +24,11 @@ INSTANCE_BODY_BYTES = 4 * 1024
 INSTANCE_PATH = re.compile(r"^/api/jobs/([a-f0-9]{32})/instance$")
 DOWNLOAD_PATH = re.compile(r"^/download/([a-f0-9]{32})/(native|web|css|bundle)$")
 _INDEX_MARKER = '<script src="/app.js" defer></script>'
-_INDEX_INJECTION = '<script src="/instance-export.js" defer></script>\n    ' + _INDEX_MARKER
+_INDEX_INJECTION = (
+    '<script src="/result-contract.js" defer></script>\n    '
+    '<script src="/instance-export.js" defer></script>\n    '
+    + _INDEX_MARKER
+)
 
 
 def _validated_public_location(axes: tuple[dict[str, object], ...], raw: object) -> dict[str, float]:
@@ -82,7 +86,7 @@ class InstanceHandler(Handler):
             self._sealed_download(*download.groups())
             return
 
-        if path not in {"/", "/index.html", "/instance-export.js"}:
+        if path not in {"/", "/index.html", "/instance-export.js", "/result-contract.js"}:
             super().do_GET()
             return
         if not self._host_ok():
@@ -90,6 +94,9 @@ class InstanceHandler(Handler):
             return
         if path == "/instance-export.js":
             self._static(WEB_ROOT / "instance-export.js", "text/javascript; charset=utf-8")
+            return
+        if path == "/result-contract.js":
+            self._static(WEB_ROOT / "result-contract.js", "text/javascript; charset=utf-8")
             return
         try:
             html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
