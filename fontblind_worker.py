@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from fontblind_contract import expected_lane_for, validate_build_result
+from fontblind_instance_verified import StaticInstanceError, build_static_instance_outputs
 from fontblind_mastermap import anonymous_slant_masters, anonymous_variable_masters
 from fontblind_pipeline import build_browser_outputs
 from fontblind_policy import BrowserCompatibilityError, ZeroIdPolicyError
@@ -95,8 +96,6 @@ def main(argv: list[str]) -> int:
                 result = build_variable_outputs(sources, output_dir)
                 result = replace(result, masters=anonymous_variable_masters(sources, result.axes))
             else:
-                from fontblind_instance import StaticInstanceError, build_static_instance_outputs
-
                 try:
                     result = build_static_instance_outputs(
                         sources[0],
