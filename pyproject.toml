@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fontblind-local"
-version = "3.5.0"
+version = "3.6.0"
 description = "Local-only macOS app for zero-ID fonts, mechanical slants, and donor-built variable fonts."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,19 +16,26 @@ dependencies = [
 ]
 
 [project.scripts]
-fontblind-local = "fontblind_app:main"
+fontblind-local = "fontblind_runtime:main"
 
 [tool.setuptools]
 py-modules = [
   "fontblind",
   "fontblind_app",
+  "fontblind_artifacts",
+  "fontblind_contract",
   "fontblind_entry",
+  "fontblind_instance",
+  "fontblind_instance_http",
+  "fontblind_instance_proof",
+  "fontblind_instance_verified",
   "fontblind_lab",
   "fontblind_mastermap",
   "fontblind_protocol",
   "fontblind_outline",
   "fontblind_pipeline",
   "fontblind_policy",
+  "fontblind_runtime",
   "fontblind_stream",
   "fontblind_surgical",
   "fontblind_version",
@@ -39,4 +46,4 @@ py-modules = [
 ]
 
 [tool.setuptools.data-files]
-"share/fontblind/web" = ["web/index.html", "web/styles.css", "web/lab-map.css", "web/lab-proof.js", "web/app.js", "web/favicon.svg"]
+"share/fontblind/web" = ["web/index.html", "web/styles.css", "web/lab-map.css", "web/lab-proof.js", "web/result-contract.js", "web/instance-export.js", "web/app.js", "web/favicon.svg"]

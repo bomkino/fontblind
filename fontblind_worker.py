@@ -10,6 +10,8 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 
+from fontblind_contract import expected_lane_for, validate_build_result
+from fontblind_instance_verified import StaticInstanceError, build_static_instance_outputs
 from fontblind_mastermap import anonymous_slant_masters, anonymous_variable_masters
 from fontblind_pipeline import build_browser_outputs
 from fontblind_policy import BrowserCompatibilityError, ZeroIdPolicyError
@@ -61,12 +63,17 @@ def main(argv: list[str]) -> int:
     if not isinstance(options, dict):
         return 64
     sources = [Path(value) for value in argv[6:]]
-    if mode in {"blind", "oblique"} and len(sources) != 1:
+    if mode in {"blind", "oblique", "instance"} and len(sources) != 1:
         return 64
     if mode == "variable" and not 2 <= len(sources) <= 12:
         return 64
-    if mode not in {"blind", "oblique", "variable"}:
+    if mode not in {"blind", "oblique", "variable", "instance"}:
         return 64
+    try:
+        expected_lane = expected_lane_for(mode, options)
+    except ValueError:
+        return 64
+
     done = threading.Event()
     threading.Thread(target=_watch_parent, args=(parent_fd, done), name="fontblind-parent-watch", daemon=True).start()
     temporary = result_path.with_suffix(".tmp")
@@ -83,11 +90,20 @@ def main(argv: list[str]) -> int:
                     result = replace(result, masters=anonymous_slant_masters(angle))
                 else:
                     result = build_oblique_outputs(sources[0], output_dir, angle=angle)
-            else:
+            elif mode == "variable":
                 from fontblind_lab import build_variable_outputs
 
                 result = build_variable_outputs(sources, output_dir)
                 result = replace(result, masters=anonymous_variable_masters(sources, result.axes))
+            else:
+                try:
+                    result = build_static_instance_outputs(
+                        sources[0],
+                        output_dir,
+                        location=options.get("location"),
+                    )
+                except StaticInstanceError:
+                    return 7
         except BrowserCompatibilityError:
             return 6
         except ZeroIdPolicyError:
@@ -106,6 +122,7 @@ def main(argv: list[str]) -> int:
             return 5
 
         result.require_verified()
+        validate_build_result(result, expected_lane=expected_lane)
         temporary.write_text(
             json.dumps(result.to_internal_dict(), separators=(",", ":"), ensure_ascii=False),
             encoding="utf-8",

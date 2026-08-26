@@ -1,0 +1,671 @@
+"""Parent-side validation of generated artifacts before any local token is exposed."""
+from __future__ import annotations
+
+import hashlib
+import math
+import os
+import re
+import stat
+import struct
+import tempfile
+import zipfile
+from pathlib import Path, PurePath
+from typing import BinaryIO, Mapping
+
+from fontTools.ttLib import TTFont
+
+from fontblind_contract import ArtifactSeal, BuildResultContractError, _OUTPUT_MAX_BYTES
+from fontblind_pipeline import OutputFile, PublicBuildResult, _decode_woff2, _verify_woff2_roundtrip
+
+
+_VARIATION_TABLES = frozenset({"avar", "cvar", "fvar", "gvar", "HVAR", "MVAR", "STAT", "VVAR"})
+_WIDTH_PERCENT = {1: 50.0, 2: 62.5, 3: 75.0, 4: 87.5, 5: 100.0, 6: 112.5, 7: 125.0, 8: 150.0, 9: 200.0}
+_CSS_NUMBER = r"(?:0|[1-9]\d{0,3})(?:\.\d{1,4})?"
+_CSS_WEIGHT = r"(?:[1-9]\d{0,2}|1000)(?: (?:[1-9]\d{0,2}|1000))?"
+_CSS_PERCENT = rf"{_CSS_NUMBER}%(?: {_CSS_NUMBER}%)?"
+_CSS_STYLE = rf"(?:normal|italic|oblique(?: {_CSS_NUMBER}deg(?: {_CSS_NUMBER}deg)?)?)"
+_ZIP_TIMESTAMP = (2020, 1, 1, 0, 0, 0)
+_ZIP_MODE = 0o644
+_SFNT_SIGNATURES = frozenset({b"\x00\x01\x00\x00", b"true", b"OTTO"})
+_MAX_SFNT_TABLES = 4096
+_MAX_ZIP_RATIO = 1000
+
+
+def _sha256_stream(stream: BinaryIO) -> str:
+    digest = hashlib.sha256()
+    for block in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(block)
+    return digest.hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    with path.open("rb") as stream:
+        return _sha256_stream(stream)
+
+
+def _owned_by_process(metadata: os.stat_result) -> bool:
+    getter = getattr(os, "getuid", None)
+    return not callable(getter) or int(metadata.st_uid) == int(getter())
+
+
+def _artifact_path(output_root: Path, item: OutputFile) -> tuple[Path, os.stat_result]:
+    target = output_root / item.filename
+    try:
+        metadata = target.lstat()
+    except OSError as exc:
+        raise BuildResultContractError("worker omitted a declared output file") from exc
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or metadata.st_nlink != 1 or not _owned_by_process(metadata):
+        raise BuildResultContractError("worker returned a non-regular, linked, or foreign output file")
+    try:
+        resolved = target.resolve(strict=True)
+    except OSError as exc:
+        raise BuildResultContractError("worker returned an unresolved output file") from exc
+    if resolved.parent != output_root:
+        raise BuildResultContractError("worker returned an output outside its owned directory")
+    if metadata.st_size <= 0 or metadata.st_size > _OUTPUT_MAX_BYTES[item.kind]:
+        raise BuildResultContractError("worker returned an implausible output size")
+    return target, metadata
+
+
+
+def _read_exact(stream: BinaryIO, size: int, message: str) -> bytes:
+    payload = stream.read(size)
+    if len(payload) != size:
+        raise BuildResultContractError(message)
+    return payload
+
+
+def _validate_sfnt_container(path: Path, file_size: int) -> None:
+    """Reject data outside the canonical generated SFNT table layout."""
+    try:
+        with path.open("rb") as stream:
+            signature, table_count, search_range, entry_selector, range_shift = struct.unpack(
+                ">4sHHHH",
+                _read_exact(stream, 12, "worker returned a truncated SFNT header"),
+            )
+            if signature not in _SFNT_SIGNATURES or not 0 < table_count <= _MAX_SFNT_TABLES:
+                raise BuildResultContractError("worker returned an unsupported SFNT container")
+            power = 1 << (table_count.bit_length() - 1)
+            if (
+                search_range != power * 16
+                or entry_selector != power.bit_length() - 1
+                or range_shift != table_count * 16 - power * 16
+            ):
+                raise BuildResultContractError("worker returned a non-canonical SFNT directory header")
+
+            directory_end = 12 + table_count * 16
+            if directory_end > file_size:
+                raise BuildResultContractError("worker returned a truncated SFNT directory")
+            records: list[tuple[bytes, int, int, int]] = []
+            tags: set[bytes] = set()
+            for _index in range(table_count):
+                tag, _checksum, offset, length = struct.unpack(
+                    ">4sIII",
+                    _read_exact(stream, 16, "worker returned a truncated SFNT directory"),
+                )
+                if tag in tags or length <= 0 or offset < directory_end or offset % 4:
+                    raise BuildResultContractError("worker returned an unsafe or non-canonical SFNT table record")
+                tags.add(tag)
+                raw_end = offset + length
+                padded_end = (raw_end + 3) & ~3
+                if raw_end < offset or padded_end > file_size:
+                    raise BuildResultContractError("worker returned an out-of-range SFNT table")
+                records.append((tag, offset, raw_end, padded_end))
+
+            cursor = directory_end
+            for _tag, offset, raw_end, padded_end in sorted(records, key=lambda row: row[1]):
+                if offset != cursor:
+                    raise BuildResultContractError("worker returned hidden or overlapping SFNT container bytes")
+                if padded_end > raw_end:
+                    stream.seek(raw_end)
+                    padding = _read_exact(
+                        stream,
+                        padded_end - raw_end,
+                        "worker returned truncated SFNT table padding",
+                    )
+                    if any(padding):
+                        raise BuildResultContractError("worker returned non-zero SFNT table padding")
+                cursor = padded_end
+            if cursor != file_size:
+                raise BuildResultContractError("worker returned trailing bytes outside the SFNT table extent")
+    except BuildResultContractError:
+        raise
+    except (OSError, struct.error, OverflowError) as exc:
+        raise BuildResultContractError("worker returned an unreadable SFNT container") from exc
+
+
+def _validate_woff2_container(path: Path, file_size: int) -> None:
+    """Bind the retained WOFF2 bytes to their header and forbid side channels."""
+    try:
+        with path.open("rb") as stream:
+            (
+                signature,
+                flavor,
+                declared_length,
+                table_count,
+                reserved,
+                total_sfnt_size,
+                total_compressed_size,
+                _major_version,
+                _minor_version,
+                metadata_offset,
+                metadata_length,
+                metadata_original_length,
+                private_offset,
+                private_length,
+            ) = struct.unpack(
+                ">4s4sIHHIIHHIIIII",
+                _read_exact(stream, 48, "worker returned a truncated WOFF2 header"),
+            )
+        if signature != b"wOF2" or flavor not in _SFNT_SIGNATURES:
+            raise BuildResultContractError("worker returned an unsupported WOFF2 container")
+        if declared_length != file_size:
+            raise BuildResultContractError("worker returned bytes outside the declared WOFF2 extent")
+        if not 0 < table_count <= _MAX_SFNT_TABLES or reserved != 0:
+            raise BuildResultContractError("worker returned malformed WOFF2 table metadata")
+        if not 12 < total_sfnt_size <= _OUTPUT_MAX_BYTES["native"]:
+            raise BuildResultContractError("worker returned an implausible decoded WOFF2 size")
+        if not 0 < total_compressed_size < file_size:
+            raise BuildResultContractError("worker returned an implausible WOFF2 compressed stream")
+        if any((metadata_offset, metadata_length, metadata_original_length, private_offset, private_length)):
+            raise BuildResultContractError("worker returned WOFF2 metadata or private-data side channels")
+    except BuildResultContractError:
+        raise
+    except (OSError, struct.error) as exc:
+        raise BuildResultContractError("worker returned an unreadable WOFF2 container") from exc
+
+
+def _validate_zip_container(path: Path, file_size: int, expected_names: tuple[str, ...]) -> None:
+    """Require one contiguous classic ZIP with no hidden records or trailing bytes."""
+    if file_size < 22:
+        raise BuildResultContractError("worker returned a truncated ZIP package")
+    try:
+        with path.open("rb") as stream:
+            eocd_offset = file_size - 22
+            stream.seek(eocd_offset)
+            (
+                signature,
+                disk_number,
+                central_disk,
+                disk_entries,
+                total_entries,
+                central_size,
+                central_offset,
+                comment_length,
+            ) = struct.unpack(
+                "<4s4H2IH",
+                _read_exact(stream, 22, "worker returned a truncated ZIP end record"),
+            )
+            if (
+                signature != b"PK\x05\x06"
+                or disk_number != 0
+                or central_disk != 0
+                or disk_entries != len(expected_names)
+                or total_entries != len(expected_names)
+                or comment_length != 0
+                or central_size in {0, 0xFFFFFFFF}
+                or central_offset == 0xFFFFFFFF
+                or central_offset + central_size != eocd_offset
+            ):
+                raise BuildResultContractError("worker returned a non-canonical ZIP end record")
+
+            stream.seek(central_offset)
+            entries: list[dict[str, int | bytes]] = []
+            for expected_name in expected_names:
+                fields = struct.unpack(
+                    "<4s6H3I5H2I",
+                    _read_exact(stream, 46, "worker returned a truncated ZIP central directory"),
+                )
+                (
+                    central_signature,
+                    _version_made,
+                    version_needed,
+                    flags,
+                    compression,
+                    modified_time,
+                    modified_date,
+                    crc32,
+                    compressed_size,
+                    uncompressed_size,
+                    filename_length,
+                    extra_length,
+                    member_comment_length,
+                    member_disk,
+                    internal_attributes,
+                    _external_attributes,
+                    local_offset,
+                ) = fields
+                if (
+                    central_signature != b"PK\x01\x02"
+                    or flags != 0
+                    or compression != zipfile.ZIP_DEFLATED
+                    or filename_length <= 0
+                    or extra_length != 0
+                    or member_comment_length != 0
+                    or member_disk != 0
+                    or internal_attributes != 0
+                    or local_offset == 0xFFFFFFFF
+                    or compressed_size in {0, 0xFFFFFFFF}
+                    or uncompressed_size in {0, 0xFFFFFFFF}
+                    or uncompressed_size > compressed_size * _MAX_ZIP_RATIO + 1024
+                ):
+                    raise BuildResultContractError("worker returned an unsafe ZIP central-directory entry")
+                filename = _read_exact(stream, filename_length, "worker returned a truncated ZIP filename")
+                if filename != expected_name.encode("ascii"):
+                    raise BuildResultContractError("worker returned an unexpected ZIP member name")
+                entries.append(
+                    {
+                        "name": filename,
+                        "version_needed": version_needed,
+                        "flags": flags,
+                        "compression": compression,
+                        "time": modified_time,
+                        "date": modified_date,
+                        "crc32": crc32,
+                        "compressed_size": compressed_size,
+                        "uncompressed_size": uncompressed_size,
+                        "local_offset": local_offset,
+                    }
+                )
+            if stream.tell() != eocd_offset:
+                raise BuildResultContractError("worker returned hidden ZIP central-directory records")
+
+            cursor = 0
+            for entry in sorted(entries, key=lambda row: int(row["local_offset"])):
+                local_offset = int(entry["local_offset"])
+                if local_offset != cursor:
+                    raise BuildResultContractError("worker returned hidden or overlapping ZIP local records")
+                stream.seek(local_offset)
+                (
+                    local_signature,
+                    version_needed,
+                    flags,
+                    compression,
+                    modified_time,
+                    modified_date,
+                    crc32,
+                    compressed_size,
+                    uncompressed_size,
+                    filename_length,
+                    extra_length,
+                ) = struct.unpack(
+                    "<4s5H3I2H",
+                    _read_exact(stream, 30, "worker returned a truncated ZIP local header"),
+                )
+                if (
+                    local_signature != b"PK\x03\x04"
+                    or version_needed != entry["version_needed"]
+                    or flags != entry["flags"]
+                    or compression != entry["compression"]
+                    or modified_time != entry["time"]
+                    or modified_date != entry["date"]
+                    or crc32 != entry["crc32"]
+                    or compressed_size != entry["compressed_size"]
+                    or uncompressed_size != entry["uncompressed_size"]
+                    or extra_length != 0
+                ):
+                    raise BuildResultContractError("worker returned an incoherent ZIP local header")
+                filename = _read_exact(stream, filename_length, "worker returned a truncated ZIP local filename")
+                if filename != entry["name"]:
+                    raise BuildResultContractError("worker returned mismatched ZIP member names")
+                cursor = stream.tell() + compressed_size
+                if cursor > central_offset:
+                    raise BuildResultContractError("worker returned an out-of-range ZIP member")
+            if cursor != central_offset:
+                raise BuildResultContractError("worker returned hidden bytes before the ZIP central directory")
+    except BuildResultContractError:
+        raise
+    except (OSError, UnicodeEncodeError, struct.error, OverflowError) as exc:
+        raise BuildResultContractError("worker returned an unreadable ZIP container") from exc
+
+
+def _axis_rows(font: TTFont) -> tuple[tuple[str, float, float, float], ...]:
+    if "fvar" not in font:
+        return ()
+    rows: list[tuple[str, float, float, float]] = []
+    seen: set[str] = set()
+    for axis in font["fvar"].axes:
+        tag = str(axis.axisTag)
+        values = (float(axis.minValue), float(axis.defaultValue), float(axis.maxValue))
+        if tag in seen or not all(math.isfinite(value) for value in values) or not values[0] <= values[1] <= values[2]:
+            raise BuildResultContractError("generated font contains malformed variation axes")
+        seen.add(tag)
+        rows.append((tag, *values))
+    return tuple(rows)
+
+
+def _expected_axis_rows(result: PublicBuildResult) -> tuple[tuple[str, float, float, float], ...]:
+    return tuple((str(axis["tag"]), float(axis["min"]), float(axis["default"]), float(axis["max"])) for axis in result.axes)
+
+
+def _axis_rows_match(actual: tuple[tuple[str, float, float, float], ...], expected: tuple[tuple[str, float, float, float], ...]) -> bool:
+    if len(actual) != len(expected):
+        return False
+    for actual_row, expected_row in zip(actual, expected):
+        if actual_row[0] != expected_row[0]:
+            return False
+        if any(not math.isclose(a, e, rel_tol=0.0, abs_tol=1e-6) for a, e in zip(actual_row[1:], expected_row[1:])):
+            return False
+    return True
+
+
+def _assert_no_variable_layout(font: TTFont) -> None:
+    if "GDEF" in font and getattr(font["GDEF"].table, "VarStore", None) is not None:
+        raise BuildResultContractError("static output retained a GDEF variation store")
+    for tag in ("GSUB", "GPOS"):
+        if tag in font and getattr(font[tag].table, "FeatureVariations", None) is not None:
+            raise BuildResultContractError("static output retained variable layout substitutions")
+
+
+def _validate_font(path: Path, result: PublicBuildResult, kind: str) -> None:
+    with path.open("rb") as stream:
+        signature = stream.read(4)
+    if kind == "web":
+        if signature != b"wOF2":
+            raise BuildResultContractError("worker returned a non-WOFF2 web output")
+    elif result.native.media_type == "font/ttf":
+        if signature not in {b"\x00\x01\x00\x00", b"true"}:
+            raise BuildResultContractError("worker returned a non-TrueType native output")
+    elif signature != b"OTTO":
+        raise BuildResultContractError("worker returned a non-OpenType native output")
+
+    try:
+        font = TTFont(str(path), lazy=False, recalcBBoxes=False, recalcTimestamp=False)
+    except Exception as exc:
+        raise BuildResultContractError("worker returned an unreadable font output") from exc
+    try:
+        if kind == "native" and font.flavor is not None:
+            raise BuildResultContractError("worker returned a wrapped native output")
+        if kind == "web" and font.flavor != "woff2":
+            raise BuildResultContractError("worker returned an incoherent WOFF2 output")
+        if result.flavor == "TrueType" and "glyf" not in font:
+            raise BuildResultContractError("worker returned the wrong outline flavour")
+        if result.flavor == "OpenType CFF" and "CFF " not in font:
+            raise BuildResultContractError("worker returned the wrong outline flavour")
+        if result.flavor == "OpenType CFF2" and "CFF2" not in font:
+            raise BuildResultContractError("worker returned the wrong outline flavour")
+
+        axes = _axis_rows(font)
+        if bool(axes) is not result.variable:
+            raise BuildResultContractError("worker returned incoherent variable-font metadata")
+        if result.variable and result.flavor == "TrueType" and "gvar" not in font:
+            raise BuildResultContractError("TrueType variable output omitted its glyph-variation table")
+        expected_axes = _expected_axis_rows(result)
+        if expected_axes and not _axis_rows_match(axes, expected_axes):
+            raise BuildResultContractError("generated font axes disagree with the public result")
+
+        if result.checks.get("variation_tables_removed") is True:
+            if set(font.keys()) & set(_VARIATION_TABLES):
+                raise BuildResultContractError("frozen output retained variable-font machinery")
+            _assert_no_variable_layout(font)
+    finally:
+        font.close()
+
+
+def _css_number(value: float) -> str:
+    return f"{float(value):.4f}".rstrip("0").rstrip(".")
+
+
+def _width_percent(width_class: int) -> str:
+    return _css_number(_WIDTH_PERCENT.get(max(1, min(9, int(width_class))), 100.0)) + "%"
+
+
+def _font_axis_map(font: TTFont) -> dict[str, tuple[float, float, float]]:
+    return {row[0]: (row[1], row[2], row[3]) for row in _axis_rows(font)}
+
+
+def _inferred_mode(result: PublicBuildResult) -> str:
+    checks = result.checks
+    if checks.get("selected_location_verified") is True:
+        return "instance"
+    if checks.get("donor_compatibility_verified") is True:
+        return "variable"
+    if checks.get("declared_shear_verified") is True:
+        return "oblique"
+    return "blind"
+
+
+def _expected_css_fields(
+    native: Path,
+    result: PublicBuildResult,
+    mode: str | None,
+    options: Mapping[str, object] | None,
+) -> dict[str, str | None]:
+    font = TTFont(str(native), lazy=False, recalcBBoxes=False, recalcTimestamp=False)
+    try:
+        axes = _font_axis_map(font)
+        os2 = font["OS/2"]
+        weight_class = max(1, min(1000, int(os2.usWeightClass)))
+        width_class = max(1, min(9, int(os2.usWidthClass)))
+        selected_mode = mode or _inferred_mode(result)
+        values = dict(options or {})
+
+        if selected_mode == "variable":
+            weight = (
+                f"{_css_number(axes['wght'][0])} {_css_number(axes['wght'][2])}"
+                if "wght" in axes
+                else str(weight_class)
+            )
+            stretch = (
+                f"{_css_number(axes['wdth'][0])}% {_css_number(axes['wdth'][2])}%"
+                if "wdth" in axes
+                else _width_percent(width_class)
+            )
+            return {"format": "woff2-variations", "weight": weight, "style": "normal", "stretch": stretch}
+
+        if selected_mode == "oblique":
+            output = str(values.get("output", "slnt" if "slnt" in axes else "static"))
+            if output == "slnt":
+                angle = abs(float(values.get("angle", axes.get("slnt", (0.0, 0.0, 0.0))[0])))
+                return {
+                    "format": "woff2-variations",
+                    "weight": str(weight_class),
+                    "style": f"oblique 0deg {_css_number(angle)}deg",
+                    "stretch": _width_percent(width_class),
+                }
+            post_angle = abs(float(font["post"].italicAngle)) if "post" in font else 0.0
+            angle = abs(float(values.get("angle", post_angle)))
+            return {
+                "format": "woff2",
+                "weight": str(weight_class),
+                "style": f"oblique {_css_number(angle)}deg",
+                "stretch": _width_percent(width_class),
+            }
+
+        if selected_mode == "instance":
+            location = values.get("location")
+            selected = dict(location) if isinstance(location, Mapping) else {}
+            slant = float(selected.get("slnt", float(font["post"].italicAngle) if "post" in font else 0.0))
+            style = "normal" if abs(slant) <= 1 / 65536 else f"oblique {_css_number(abs(slant))}deg"
+            stretch = _css_number(float(selected["wdth"])) + "%" if "wdth" in selected else _width_percent(width_class)
+            return {"format": "woff2", "weight": str(weight_class), "style": style, "stretch": stretch}
+
+        # Blind preserves the source font model and uses fontblind_web.make_css.
+        weight = (
+            f"{int(round(axes['wght'][0]))} {int(round(axes['wght'][2]))}"
+            if "wght" in axes and axes["wght"][0] != axes["wght"][2]
+            else str(int(round(axes["wght"][0])))
+            if "wght" in axes
+            else str(weight_class)
+        )
+        stretch = (
+            f"{axes['wdth'][0]:g}% {axes['wdth'][2]:g}%"
+            if "wdth" in axes and axes["wdth"][0] != axes["wdth"][2]
+            else f"{axes['wdth'][0]:g}%"
+            if "wdth" in axes
+            else _width_percent(width_class)
+        )
+        axis_tags = set(axes)
+        if axis_tags & {"ital", "slnt"}:
+            style = "oblique"
+        elif int(os2.fsSelection) & 0x0001 or int(font["head"].macStyle) & 0x0002:
+            style = "italic"
+        else:
+            style = "normal"
+        return {"format": "woff2", "weight": weight, "style": style, "stretch": stretch}
+    finally:
+        font.close()
+
+
+def _validate_css(
+    path: Path,
+    web_filename: str,
+    native: Path,
+    result: PublicBuildResult,
+    mode: str | None,
+    options: Mapping[str, object] | None,
+) -> None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BuildResultContractError("worker returned unreadable CSS") from exc
+    if not text.isascii() or "\r" in text or "\x00" in text:
+        raise BuildResultContractError("worker returned non-canonical CSS text")
+    filename = re.escape(web_filename)
+    contract = re.compile(
+        rf'@font-face \{{\n'
+        rf'  font-family: "Untitled";\n'
+        rf'  src: url\("{filename}"\) format\("(?P<format>woff2|woff2-variations)"\);\n'
+        rf'  font-weight: (?P<weight>{_CSS_WEIGHT});\n'
+        rf'  font-style: (?P<style>{_CSS_STYLE});\n'
+        rf'  font-stretch: (?P<stretch>{_CSS_PERCENT});\n'
+        rf'  font-display: swap;\n'
+        rf'\}}\n'
+    )
+    match = contract.fullmatch(text)
+    if match is None:
+        raise BuildResultContractError("worker returned CSS outside the exact zero-ID package contract")
+    expected = _expected_css_fields(native, result, mode, options)
+    for field in ("format", "weight", "style", "stretch"):
+        if expected[field] is not None and match.group(field) != expected[field]:
+            raise BuildResultContractError(f"generated CSS {field} disagrees with the verified font or request")
+
+
+def _validate_font_pair(native: Path, web: Path, work_root: Path) -> None:
+    try:
+        with tempfile.TemporaryDirectory(prefix=".fontblind-roundtrip-", dir=str(work_root)) as temp_text:
+            decoded = Path(temp_text) / native.name
+            _decode_woff2(web, decoded)
+            _verify_woff2_roundtrip(native, decoded)
+    except Exception as exc:
+        raise BuildResultContractError("native and WOFF2 outputs do not describe the same font") from exc
+
+
+def _validate_bundle(path: Path, output_root: Path, result: PublicBuildResult) -> None:
+    expected = [result.native.filename, result.web.filename, result.css.filename]
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            infos = archive.infolist()
+            if archive.comment or [info.filename for info in infos] != expected or len({info.filename for info in infos}) != len(infos):
+                raise BuildResultContractError("worker returned an unexpected package manifest")
+            for info in infos:
+                mode = (info.external_attr >> 16) & 0xFFFF
+                if (
+                    PurePath(info.filename).name != info.filename
+                    or info.is_dir()
+                    or info.flag_bits != 0
+                    or info.compress_type != zipfile.ZIP_DEFLATED
+                    or info.date_time != _ZIP_TIMESTAMP
+                    or info.comment
+                    or info.extra
+                    or mode != _ZIP_MODE
+                ):
+                    raise BuildResultContractError("worker returned non-canonical or unsafe package metadata")
+                source = output_root / info.filename
+                source_size = source.stat().st_size
+                member_kind = "css" if info.filename == result.css.filename else "web" if info.filename == result.web.filename else "native"
+                if info.file_size != source_size or info.file_size > _OUTPUT_MAX_BYTES[member_kind]:
+                    raise BuildResultContractError("worker returned a package member with the wrong size")
+                with archive.open(info, "r") as member:
+                    member_hash = _sha256_stream(member)
+                if member_hash != _sha256_file(source):
+                    raise BuildResultContractError("worker returned a package that changed an output file")
+    except BuildResultContractError:
+        raise
+    except (OSError, EOFError, RuntimeError, NotImplementedError, zipfile.BadZipFile) as exc:
+        raise BuildResultContractError("worker returned an unreadable or unsupported package") from exc
+
+
+def validate_job_artifacts(
+    job_dir: Path,
+    result: PublicBuildResult,
+    *,
+    mode: str | None = None,
+    options: Mapping[str, object] | None = None,
+) -> dict[str, ArtifactSeal]:
+    """Inspect actual files after worker exit and before any public token is exposed."""
+    root = Path(job_dir)
+    try:
+        root_metadata = root.lstat()
+        output_dir = root / "output"
+        output_metadata = output_dir.lstat()
+        root_resolved = root.resolve(strict=True)
+        output_root = output_dir.resolve(strict=True)
+    except OSError as exc:
+        raise BuildResultContractError("worker returned no owned output directory") from exc
+    if not stat.S_ISDIR(root_metadata.st_mode) or stat.S_ISLNK(root_metadata.st_mode) or not _owned_by_process(root_metadata):
+        raise BuildResultContractError("worker job root is not an owned directory")
+    if not stat.S_ISDIR(output_metadata.st_mode) or stat.S_ISLNK(output_metadata.st_mode) or not _owned_by_process(output_metadata) or output_root.parent != root_resolved:
+        raise BuildResultContractError("worker output directory escaped its owned job")
+
+    expected_names = {getattr(result, kind).filename for kind in ("native", "web", "css", "bundle")}
+    try:
+        actual = {entry.name for entry in output_dir.iterdir()}
+    except OSError as exc:
+        raise BuildResultContractError("worker output directory could not be enumerated") from exc
+    if actual != expected_names:
+        raise BuildResultContractError("worker left missing or unexpected output files")
+
+    seals: dict[str, ArtifactSeal] = {}
+    paths: dict[str, Path] = {}
+    for kind in ("native", "web", "css", "bundle"):
+        item = getattr(result, kind)
+        path, metadata = _artifact_path(output_root, item)
+        paths[kind] = path
+        if kind == "native":
+            _validate_sfnt_container(path, int(metadata.st_size))
+            _validate_font(path, result, kind)
+        elif kind == "web":
+            _validate_woff2_container(path, int(metadata.st_size))
+            _validate_font(path, result, kind)
+        elif kind == "bundle":
+            _validate_zip_container(
+                path,
+                int(metadata.st_size),
+                (result.native.filename, result.web.filename, result.css.filename),
+            )
+        seals[kind] = ArtifactSeal(
+            kind=kind,
+            filename=item.filename,
+            size=int(metadata.st_size),
+            sha256=_sha256_file(path),
+            device=int(metadata.st_dev),
+            inode=int(metadata.st_ino),
+            modified_ns=int(metadata.st_mtime_ns),
+        )
+
+    _validate_css(paths["css"], result.web.filename, paths["native"], result, mode, options)
+    _validate_font_pair(paths["native"], paths["web"], root_resolved)
+    _validate_bundle(paths["bundle"], output_root, result)
+    return seals
+
+
+def retained_artifact_bytes(seals: dict[str, ArtifactSeal]) -> int:
+    return sum(int(seal.size) for seal in seals.values())
+
+
+def verify_artifact_seal(job_dir: Path, item: OutputFile, seal: ArtifactSeal) -> bool:
+    """Recheck a retained artifact immediately before creating a sealed snapshot."""
+    if item.kind != seal.kind or item.filename != seal.filename:
+        return False
+    try:
+        output_dir = (Path(job_dir) / "output").resolve(strict=True)
+        path, metadata = _artifact_path(output_dir, item)
+    except (OSError, BuildResultContractError):
+        return False
+    if int(metadata.st_size) != seal.size or int(metadata.st_dev) != seal.device or int(metadata.st_ino) != seal.inode or int(metadata.st_mtime_ns) != seal.modified_ns:
+        return False
+    try:
+        return _sha256_file(path) == seal.sha256
+    except OSError:
+        return False

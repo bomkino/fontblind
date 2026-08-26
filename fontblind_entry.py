@@ -2,7 +2,7 @@
 """Frozen entry point for the native FontBlind macOS wrapper.
 
 The same PyInstaller executable serves two roles. With no arguments it owns the
-loopback HTTP server. When ``fontblind_app.JobStore`` relaunches ``sys.executable``
+loopback HTTP server. When the local job store relaunches ``sys.executable``
 with ``--fontblind-worker``, this entry point dispatches into the isolated worker
 instead of starting a second server.
 """
@@ -11,8 +11,10 @@ from __future__ import annotations
 import signal
 import sys
 
-import fontblind_lab as _fontblind_lab  # Force frozen builds to include the dynamically dispatched labs.
-from fontblind_app import FontBlindServer, Handler
+import fontblind_instance as _fontblind_instance  # Force frozen builds to include the static export lane.
+import fontblind_lab as _fontblind_lab  # Force frozen builds to include dynamically dispatched Lab builders.
+from fontblind_instance_http import InstanceHandler
+from fontblind_runtime import ContractFontBlindServer
 from fontblind_worker import _terminate as terminate_worker
 from fontblind_worker import main as worker_main
 
@@ -40,7 +42,7 @@ def _run_server() -> int:
     if hasattr(signal, "SIGHUP"):
         signal.signal(signal.SIGHUP, _stop_server)
 
-    server = FontBlindServer(("127.0.0.1", 0), Handler)
+    server = ContractFontBlindServer(("127.0.0.1", 0), InstanceHandler)
     print(f"{READY_PREFIX} 127.0.0.1 {server.server_port}", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)
