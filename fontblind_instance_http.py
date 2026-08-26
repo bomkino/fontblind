@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 
 from fontblind_app import (
     UPLOAD_READ_TIMEOUT_SECONDS,
-    WEB_ROOT,
     Handler,
     LabRequestError,
 )
@@ -23,12 +22,6 @@ from fontblind_web import WebBuildError
 INSTANCE_BODY_BYTES = 4 * 1024
 INSTANCE_PATH = re.compile(r"^/api/jobs/([a-f0-9]{32})/instance$")
 DOWNLOAD_PATH = re.compile(r"^/download/([a-f0-9]{32})/(native|web|css|bundle)$")
-_INDEX_MARKER = '<script src="/app.js" defer></script>'
-_INDEX_INJECTION = (
-    '<script src="/result-contract.js" defer></script>\n    '
-    '<script src="/instance-export.js" defer></script>\n    '
-    + _INDEX_MARKER
-)
 
 
 def _validated_public_location(axes: tuple[dict[str, object], ...], raw: object) -> dict[str, float]:
@@ -85,29 +78,7 @@ class InstanceHandler(Handler):
                 return
             self._sealed_download(*download.groups())
             return
-
-        if path not in {"/", "/index.html", "/instance-export.js", "/result-contract.js"}:
-            super().do_GET()
-            return
-        if not self._host_ok():
-            self._json(HTTPStatus.MISDIRECTED_REQUEST, {"ok": False, "error": "Invalid local host."})
-            return
-        if path == "/instance-export.js":
-            self._static(WEB_ROOT / "instance-export.js", "text/javascript; charset=utf-8")
-            return
-        if path == "/result-contract.js":
-            self._static(WEB_ROOT / "result-contract.js", "text/javascript; charset=utf-8")
-            return
-        try:
-            html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
-            if html.count(_INDEX_MARKER) != 1:
-                raise ValueError("local index integration marker is missing")
-            payload = html.replace(_INDEX_MARKER, _INDEX_INJECTION).encode("utf-8")
-        except (OSError, ValueError):
-            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "The local workbench could not be loaded."})
-            return
-        self._headers(HTTPStatus.OK, "text/html; charset=utf-8", len(payload))
-        self.wfile.write(payload)
+        super().do_GET()
 
     def _public_instance_result(self, token: str, job: object, location: dict[str, float]) -> None:
         public = job.result.to_public_dict()
