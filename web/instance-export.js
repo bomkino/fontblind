@@ -44,7 +44,39 @@
     return `${parsed.pathname}${parsed.search}`;
   }
 
-  function validateStaticResult(data, origin = "http://127.0.0.1") {
+  function validateLocation(raw, expected = null) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new InstanceExportError("Static export returned no verified location.");
+    }
+    const tags = Object.keys(raw).sort();
+    const signature = tags.join("+");
+    if (!["slnt", "wdth", "wght", "wdth+wght"].includes(signature)) {
+      throw new InstanceExportError("Static export returned an invalid generated-axis location.");
+    }
+    const location = {};
+    for (const tag of tags) {
+      const value = raw[tag];
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new InstanceExportError("Static export returned an invalid generated-axis coordinate.");
+      }
+      location[tag] = value;
+    }
+    if (expected !== null) {
+      if (!expected || typeof expected !== "object" || Array.isArray(expected) ||
+          Object.keys(expected).sort().join("+") !== signature) {
+        throw new InstanceExportError("Static export confirmed a different generated-axis model.");
+      }
+      for (const tag of tags) {
+        if (typeof expected[tag] !== "number" || !Number.isFinite(expected[tag]) ||
+            Math.abs(expected[tag] - location[tag]) > 0.000001) {
+          throw new InstanceExportError("Static export confirmed a different generated-axis location.");
+        }
+      }
+    }
+    return location;
+  }
+
+  function validateStaticResult(data, origin = "http://127.0.0.1", expectedLocation = null) {
     if (!data || data.ok !== true || typeof data.job !== "string" || !/^[a-f0-9]{32}$/.test(data.job)) {
       throw new InstanceExportError("Static export returned an incomplete result.");
     }
@@ -61,21 +93,12 @@
       throw new InstanceExportError("Static export returned no verification proof.");
     }
     const checks = Object.entries(data.checks);
-    if (!checks.length || checks.some(([key, passed]) => !STATIC_CHECKS.has(key) || passed !== true)) {
-      throw new InstanceExportError("Static export returned a failed or unrecognised proof.");
+    if (checks.length !== STATIC_CHECKS.size ||
+        checks.some(([key, passed]) => !STATIC_CHECKS.has(key) || passed !== true) ||
+        Array.from(STATIC_CHECKS).some((key) => data.checks[key] !== true)) {
+      throw new InstanceExportError("Static export returned the wrong verification contract.");
     }
-    for (const required of [
-      "source_identity_removed",
-      "selected_location_verified",
-      "static_instance_verified",
-      "variation_tables_removed",
-      "harfbuzz_shaping_verified",
-      "woff2_roundtrip_verified"
-    ]) {
-      if (data.checks[required] !== true) {
-        throw new InstanceExportError("Static export omitted a required verification gate.");
-      }
-    }
+    data.location = validateLocation(data.location, expectedLocation);
     return data;
   }
 
@@ -344,25 +367,27 @@
           if (!response.ok || !data || data.ok !== true) {
             throw new InstanceExportError(data && typeof data.error === "string" ? data.error : "Static export failed safely.");
           }
-          validateStaticResult(data, root.location.origin);
+          validateStaticResult(data, root.location.origin, chosen);
+          const frozenLocation = data.location;
           children.set(parent.token, data.job);
           const specimen = document.createElement("textarea");
           specimen.className = "specimen";
           specimen.rows = 2;
           specimen.spellcheck = false;
           specimen.value = machine.querySelector("[data-specimen]").value;
-          specimen.setAttribute("aria-label", `Frozen static preview at ${formatLocation(parent.axes, chosen)}`);
+          specimen.setAttribute("aria-label", `Frozen static preview at ${formatLocation(parent.axes, frozenLocation)}`);
           await loadFrozenPreview(tool, parent.token, data, specimen);
 
+          const frozenLabel = formatLocation(parent.axes, frozenLocation);
           const line = document.createElement("div");
           line.className = "success-line";
           const pass = document.createElement("span");
           pass.textContent = "PASS";
-          line.append(pass, document.createTextNode(` Static instance frozen at ${formatLocation(parent.axes, chosen)}`));
+          line.append(pass, document.createTextNode(` Static instance frozen at ${frozenLabel}`));
           output.append(line, specimen);
           renderDownloads(output, data);
           renderProof(output, data.checks);
-          shell.dataset.frozenLocation = formatLocation(parent.axes, chosen);
+          shell.dataset.frozenLocation = frozenLabel;
           status.textContent = "Static package ready. Moving the live sliders will not change this frozen package.";
         } catch (error) {
           await discardChild(parent.token);
