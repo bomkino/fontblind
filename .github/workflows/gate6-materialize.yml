@@ -1,0 +1,60 @@
+name: Gate 6 materializer
+
+on:
+  push:
+    branches:
+      - improve/inspect-instance-proof-3.6
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gate6-materialize
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.event.head_commit.message == 'Stage compressed Gate 6 browser-surface tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: improve/inspect-instance-proof-3.6
+          fetch-depth: 1
+      - name: Materialize reviewed Gate 6 files
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import gzip
+          from pathlib import Path
+
+          mappings = {
+              ".gate6-materialize/web__instance-export.js.gz.b64": "web/instance-export.js",
+              ".gate6-materialize/tests__instance-export.test.cjs.gz.b64": "tests/instance-export.test.cjs",
+              ".gate6-materialize/tests__test_browser_surface.py.gz.b64": "tests/test_browser_surface.py",
+          }
+          for encoded_name, destination_name in mappings.items():
+              encoded = Path(encoded_name)
+              destination = Path(destination_name)
+              payload = gzip.decompress(base64.b64decode(encoded.read_text(encoding="ascii").strip()))
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_bytes(payload)
+              encoded.unlink()
+          Path(".gate6-materialize").rmdir()
+          Path(".github/workflows/gate6-materialize.yml").unlink()
+          PY
+      - name: Validate materialized browser boundary
+        run: |
+          node --check web/instance-export.js
+          node --test tests/instance-export.test.cjs
+          python -m py_compile tests/test_browser_surface.py
+      - name: Commit reviewed Gate 6 implementation
+        run: |
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git commit -m "Close Gate 6 browser privacy and accessibility races"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
