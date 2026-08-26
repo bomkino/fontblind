@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Replace Variable Lab's base64/JSON donor upload with a bounded binary font-set envelope.
+- Serialize heavy local builds and return explicit back-pressure instead of competing workers.
+- Require every cross-process and browser-visible proof to be a real, passing Boolean.
+- Add keyboard-operable anonymous master maps for `slnt`, `wght`, and `wdth` results.
+- Add a deterministic Lab corpus gauntlet, multi-version CI, package builds, and dependency updates.
+
 ## 3.4.0 — 2026-08-25
 
 - Ship Blind, Oblique Lab, and Variable Lab in one native macOS app.

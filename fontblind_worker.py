@@ -7,8 +7,10 @@ import os
 import signal
 import sys
 import threading
+from dataclasses import replace
 from pathlib import Path
 
+from fontblind_mastermap import anonymous_slant_masters, anonymous_variable_masters
 from fontblind_pipeline import build_browser_outputs
 from fontblind_policy import BrowserCompatibilityError, ZeroIdPolicyError
 from fontblind_surgical import FontBlindError
@@ -78,12 +80,14 @@ def main(argv: list[str]) -> int:
                 angle = float(options.get("angle", 12))
                 if options.get("output") == "slnt":
                     result = build_slant_variable_outputs(sources[0], output_dir, angle=angle)
+                    result = replace(result, masters=anonymous_slant_masters(angle))
                 else:
                     result = build_oblique_outputs(sources[0], output_dir, angle=angle)
             else:
                 from fontblind_lab import build_variable_outputs
 
                 result = build_variable_outputs(sources, output_dir)
+                result = replace(result, masters=anonymous_variable_masters(sources, result.axes))
         except BrowserCompatibilityError:
             return 6
         except ZeroIdPolicyError:
@@ -101,6 +105,7 @@ def main(argv: list[str]) -> int:
         except Exception:
             return 5
 
+        result.require_verified()
         temporary.write_text(
             json.dumps(result.to_internal_dict(), separators=(",", ":"), ensure_ascii=False),
             encoding="utf-8",

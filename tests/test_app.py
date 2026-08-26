@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 import http.client
 import inspect
@@ -24,6 +23,7 @@ from fontblind_app import (
     JobStore,
     _scavenge_stale_roots,
 )
+from fontblind_protocol import FONT_SET_MEDIA_TYPE, pack_font_set
 from fontblind_surgical import FontBlindError
 from fontblind_worker import main as worker_main
 
@@ -384,7 +384,7 @@ class HttpBoundaryTests(unittest.TestCase):
         self.assertIn(b" 400 ", response.split(b"\r\n", 1)[0])
         self.assertIn(b"upload was interrupted", response)
 
-    def test_lab_boundaries_reject_invalid_angle_and_master_count(self) -> None:
+    def test_lab_boundaries_reject_invalid_angle_and_binary_framing(self) -> None:
         session = self.session()
         status, _, payload = self.request(
             "POST",
@@ -399,31 +399,46 @@ class HttpBoundaryTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn(b"between 4 and 20", payload)
 
-        body = json.dumps({"fonts": ["Zm9udA=="]}).encode("utf-8")
         status, _, payload = self.request(
             "POST",
             "/api/lab/variable",
-            body=body,
+            body=b"not-a-font-set",
             headers={
-                "Content-Type": "application/json",
-                "X-FontBlind-Session": session,
-            },
-        )
-        self.assertEqual(status, 400)
-        self.assertIn(b"two and twelve", payload)
-
-        body = json.dumps({"fonts": ["not-base64", "still-not-base64"]}).encode("utf-8")
-        status, _, payload = self.request(
-            "POST",
-            "/api/lab/variable",
-            body=body,
-            headers={
-                "Content-Type": "application/json",
+                "Content-Type": FONT_SET_MEDIA_TYPE,
                 "X-FontBlind-Session": session,
             },
         )
         self.assertEqual(status, 400)
         self.assertIn(b"Invalid local Lab request", payload)
+
+        status, _, payload = self.request(
+            "POST",
+            "/api/lab/variable",
+            body=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "X-FontBlind-Session": session,
+            },
+        )
+        self.assertEqual(status, 415)
+        self.assertIn(b"Invalid local Lab request", payload)
+
+    def test_worker_gate_rejects_a_parallel_heavy_build(self) -> None:
+        self.assertTrue(self.server.worker_gate.acquire(blocking=False))
+        try:
+            status, _, payload = self.request(
+                "POST",
+                "/api/process",
+                body=b"font",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "X-FontBlind-Session": self.session(),
+                },
+            )
+        finally:
+            self.server.worker_gate.release()
+        self.assertEqual(status, 429)
+        self.assertIn(b"Another local build", payload)
 
     def test_lab_endpoints_build_anonymous_oblique_and_variable_packages(self) -> None:
         from tests.test_lab import write_fixture_font
@@ -468,20 +483,13 @@ class HttpBoundaryTests(unittest.TestCase):
             self.assertEqual([axis["tag"] for axis in slant["axes"]], ["slnt"])
             self.assertNotIn("revealing", payload.decode("utf-8").casefold())
 
-            request = json.dumps(
-                {
-                    "fonts": [
-                        base64.b64encode(regular.read_bytes()).decode("ascii"),
-                        base64.b64encode(bold.read_bytes()).decode("ascii"),
-                    ]
-                }
-            ).encode("utf-8")
+            request = pack_font_set([regular.read_bytes(), bold.read_bytes()])
             status, _, payload = self.request(
                 "POST",
                 "/api/lab/variable",
                 body=request,
                 headers={
-                    "Content-Type": "application/json",
+                    "Content-Type": FONT_SET_MEDIA_TYPE,
                     "X-FontBlind-Session": session,
                 },
             )
@@ -489,6 +497,8 @@ class HttpBoundaryTests(unittest.TestCase):
             variable = json.loads(payload)
             self.assertEqual(variable["native"]["filename"], "fontlab-variable.ttf")
             self.assertEqual([axis["tag"] for axis in variable["axes"]], ["wght"])
+            self.assertEqual(len(variable["masters"]), 2)
+            self.assertEqual(sum(bool(master["default"]) for master in variable["masters"]), 1)
             self.assertNotIn("revealing", payload.decode("utf-8").casefold())
 
     def test_variable_lab_returns_anonymous_actionable_compatibility_diagnostic(self) -> None:
@@ -500,20 +510,13 @@ class HttpBoundaryTests(unittest.TestCase):
             second = root / "revealing-second-name.ttf"
             write_fixture_font(first, weight=400, width_class=3, family="Revealing One")
             write_fixture_font(second, weight=700, width_class=5, family="Revealing Two")
-            body = json.dumps(
-                {
-                    "fonts": [
-                        base64.b64encode(first.read_bytes()).decode("ascii"),
-                        base64.b64encode(second.read_bytes()).decode("ascii"),
-                    ]
-                }
-            ).encode("utf-8")
+            body = pack_font_set([first.read_bytes(), second.read_bytes()])
             status, _, payload = self.request(
                 "POST",
                 "/api/lab/variable",
                 body=body,
                 headers={
-                    "Content-Type": "application/json",
+                    "Content-Type": FONT_SET_MEDIA_TYPE,
                     "X-FontBlind-Session": self.session(),
                 },
             )

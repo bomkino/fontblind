@@ -46,6 +46,7 @@ class PublicBuildResult:
     color: bool
     checks: dict[str, bool]
     axes: tuple[dict[str, object], ...] = ()
+    masters: tuple[dict[str, object], ...] = ()
 
     def to_public_dict(self) -> dict[str, object]:
         # Format/color descriptors stay private. Neutral generated-axis bounds
@@ -59,24 +60,53 @@ class PublicBuildResult:
         }
         if self.axes:
             result["axes"] = [dict(axis) for axis in self.axes]
+        if self.masters:
+            result["masters"] = [dict(master) for master in self.masters]
         return result
 
     def to_internal_dict(self) -> dict[str, object]:
         return asdict(self)
 
+    def require_verified(self) -> None:
+        if not self.checks:
+            raise ValueError("FontBlind worker returned no verification proof")
+        for key, passed in self.checks.items():
+            if not isinstance(key, str) or not key or type(passed) is not bool:
+                raise ValueError("FontBlind worker returned malformed verification proof")
+            if passed is not True:
+                raise ValueError("FontBlind worker returned a failed verification proof")
+
     @classmethod
     def from_internal_dict(cls, value: dict[str, object]) -> "PublicBuildResult":
-        return cls(
-            native=OutputFile(**value["native"]),
-            web=OutputFile(**value["web"]),
-            css=OutputFile(**value["css"]),
-            bundle=OutputFile(**value["bundle"]),
+        raw_checks = value["checks"]
+        if not isinstance(raw_checks, dict):
+            raise ValueError("FontBlind worker returned malformed verification proof")
+        checks: dict[str, bool] = {}
+        for key, item in raw_checks.items():
+            if not isinstance(key, str) or not key or type(item) is not bool:
+                raise ValueError("FontBlind worker returned malformed verification proof")
+            checks[key] = item
+
+        raw_axes = value.get("axes", ())
+        raw_masters = value.get("masters", ())
+        if not isinstance(raw_axes, (list, tuple)) or not isinstance(raw_masters, (list, tuple)):
+            raise ValueError("FontBlind worker returned malformed Lab inspection data")
+        if type(value.get("variable")) is not bool or type(value.get("color")) is not bool:
+            raise ValueError("FontBlind worker returned malformed font descriptors")
+        result = cls(
+            native=OutputFile(**dict(value["native"])),
+            web=OutputFile(**dict(value["web"])),
+            css=OutputFile(**dict(value["css"])),
+            bundle=OutputFile(**dict(value["bundle"])),
             flavor=str(value["flavor"]),
-            variable=bool(value["variable"]),
-            color=bool(value["color"]),
-            checks={str(key): bool(item) for key, item in dict(value["checks"]).items()},
-            axes=tuple(dict(axis) for axis in value.get("axes", ())),
+            variable=value["variable"],
+            color=value["color"],
+            checks=checks,
+            axes=tuple(dict(axis) for axis in raw_axes),
+            masters=tuple(dict(master) for master in raw_masters),
         )
+        result.require_verified()
+        return result
 
 
 def _decode_woff2(source: Path, output: Path) -> None:

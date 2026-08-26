@@ -24,6 +24,8 @@ py-modules = [
   "fontblind_app",
   "fontblind_entry",
   "fontblind_lab",
+  "fontblind_mastermap",
+  "fontblind_protocol",
   "fontblind_outline",
   "fontblind_pipeline",
   "fontblind_policy",
@@ -31,7 +33,8 @@ py-modules = [
   "fontblind_web",
   "fontblind_worker",
   "gauntlet",
+  "lab_gauntlet",
 ]
 
 [tool.setuptools.data-files]
-"share/fontblind/web" = ["web/index.html", "web/styles.css", "web/app.js", "web/favicon.svg"]
+"share/fontblind/web" = ["web/index.html", "web/styles.css", "web/lab-map.css", "web/app.js", "web/favicon.svg"]

@@ -5,9 +5,17 @@ FontBlind welcomes focused bug reports, reproducible font-format edge cases, tes
 ## Development
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests -v
+python -m pip install .
+python -m pip check
+node --check web/app.js
+python -m unittest discover -s tests -v
+```
+
+For repeatability checks against fonts you are entitled to test:
+
+```bash
+python lab_gauntlet.py oblique /path/to/corpus --loops 3
+python lab_gauntlet.py variable Regular.ttf Bold.ttf --loops 3
 ```
 
 Build the native app on macOS 13 or newer with Apple command-line developer tools:

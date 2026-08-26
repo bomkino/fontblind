@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import binascii
 from contextlib import ExitStack
 import json
 import mimetypes
@@ -28,6 +26,14 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from fontblind_pipeline import PublicBuildResult
+from fontblind_protocol import (
+    FONT_SET_MEDIA_TYPE,
+    MAX_FONT_BYTES,
+    MAX_FONT_SET_BYTES,
+    FontSetError,
+    FontSetTooLargeError,
+    read_font_set,
+)
 from fontblind_policy import BrowserCompatibilityError, ZeroIdPolicyError
 from fontblind_surgical import FontBlindError
 from fontblind_web import WebBuildError
@@ -37,9 +43,8 @@ APP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 WEB_ROOT = APP_ROOT / "web"
 if not WEB_ROOT.is_dir():
     WEB_ROOT = Path(sys.prefix) / "share" / "fontblind" / "web"
-MAX_UPLOAD_BYTES = 128 * 1024 * 1024
-MAX_VARIABLE_BODY_BYTES = 350 * 1024 * 1024
-MAX_VARIABLE_TOTAL_BYTES = 256 * 1024 * 1024
+MAX_UPLOAD_BYTES = MAX_FONT_BYTES
+MAX_VARIABLE_TOTAL_BYTES = MAX_FONT_SET_BYTES
 JOB_TTL_SECONDS = 2 * 60 * 60
 JOB_RE = re.compile(r"^[a-f0-9]{32}$")
 WORKER_TIMEOUT_SECONDS = 5 * 60
@@ -249,7 +254,9 @@ class JobStore:
             color=result.color,
             checks=checks,
             axes=result.axes,
+            masters=result.masters,
         )
+        result.require_verified()
         job = Job(path=job_dir, result=result, created=time.monotonic())
         with self._lock:
             self._jobs[token] = job
@@ -312,6 +319,7 @@ class FontBlindServer(ThreadingHTTPServer):
             super().__init__(address, handler)
             self.jobs = JobStore()
             self.session_secret = secrets.token_urlsafe(32)
+            self.worker_gate = threading.BoundedSemaphore(value=1)
         except Exception:
             super().server_close()
             raise
@@ -411,6 +419,7 @@ class Handler(BaseHTTPRequestHandler):
             "/styles.css": (WEB_ROOT / "styles.css", "text/css; charset=utf-8"),
             "/app.js": (WEB_ROOT / "app.js", "text/javascript; charset=utf-8"),
             "/favicon.svg": (WEB_ROOT / "favicon.svg", "image/svg+xml"),
+            "/lab-map.css": (WEB_ROOT / "lab-map.css", "text/css; charset=utf-8"),
         }
         if path in static:
             self._static(*static[path])
@@ -458,84 +467,78 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Invalid local session."})
             return
 
+        if not self.server.worker_gate.acquire(blocking=False):
+            self._json(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                {"ok": False, "error": "Another local build is already running. Finish or reset it before starting another."},
+            )
+            return
         try:
-            media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
-            if path in {"/api/process", "/api/lab/oblique"}:
-                if media_type != "application/octet-stream":
-                    self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local upload."})
-                    return
-                payload = self._read_body(MAX_UPLOAD_BYTES, "Choose a TTF or OTF first.")
-                if payload is None:
-                    return
-                if path == "/api/process":
-                    token, job = self.server.jobs.create(payload)
+            try:
+                media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
+                if path in {"/api/process", "/api/lab/oblique"}:
+                    if media_type != "application/octet-stream":
+                        self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local upload."})
+                        return
+                    payload = self._read_body(MAX_UPLOAD_BYTES, "Choose a TTF or OTF first.")
+                    if payload is None:
+                        return
+                    if path == "/api/process":
+                        token, job = self.server.jobs.create(payload)
+                    else:
+                        try:
+                            angle = float(self.headers.get("X-FontBlind-Angle", "12"))
+                        except ValueError:
+                            angle = 0
+                        if not 4 <= angle <= 20:
+                            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Oblique angle must be between 4 and 20 degrees."})
+                            return
+                        output = self.headers.get("X-FontBlind-Output", "static").strip().lower()
+                        if output not in {"static", "slnt"}:
+                            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Choose a valid Oblique output."})
+                            return
+                        token, job = self.server.jobs.create_oblique(payload, angle, output)
                 else:
+                    if media_type != FONT_SET_MEDIA_TYPE:
+                        self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local Lab request."})
+                        return
                     try:
-                        angle = float(self.headers.get("X-FontBlind-Angle", "12"))
-                    except ValueError:
-                        angle = 0
-                    if not 4 <= angle <= 20:
-                        self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Oblique angle must be between 4 and 20 degrees."})
+                        payloads = read_font_set(self.rfile, self.headers.get("Content-Length"))
+                    except FontSetTooLargeError as exc:
+                        self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": str(exc)})
                         return
-                    output = self.headers.get("X-FontBlind-Output", "static").strip().lower()
-                    if output not in {"static", "slnt"}:
-                        self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Choose a valid Oblique output."})
+                    except FontSetError:
+                        self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local Lab request."})
                         return
-                    token, job = self.server.jobs.create_oblique(payload, angle, output)
-            else:
-                if media_type != "application/json":
-                    self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local Lab request."})
-                    return
-                encoded = self._read_body(MAX_VARIABLE_BODY_BYTES, "Choose between two and twelve compatible font masters.")
-                if encoded is None:
-                    return
-                try:
-                    request = json.loads(encoded)
-                    fonts = request["fonts"]
-                except (UnicodeDecodeError, json.JSONDecodeError, TypeError, KeyError):
-                    self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local Lab request."})
-                    return
-                if not isinstance(fonts, list) or not 2 <= len(fonts) <= 12 or not all(isinstance(item, str) for item in fonts):
-                    self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Choose between two and twelve compatible font masters."})
-                    return
-                try:
-                    payloads = [base64.b64decode(item, validate=True) for item in fonts]
-                except (binascii.Error, ValueError, TypeError):
-                    self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local Lab request."})
-                    return
-                if any(not payload or len(payload) > MAX_UPLOAD_BYTES for payload in payloads):
-                    self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "A font exceeds the 128 MB local limit."})
-                    return
-                if sum(map(len, payloads)) > MAX_VARIABLE_TOTAL_BYTES:
-                    self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "The selected masters exceed the 256 MB local limit."})
-                    return
-                token, job = self.server.jobs.create_variable(payloads)
-        except BrowserCompatibilityError:
-            self._json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"ok": False, "error": "This font is missing structure required by modern browsers. No output was kept."},
-            )
-            return
-        except ZeroIdPolicyError:
-            self._json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"ok": False, "error": "This font contains data FontBlind cannot yet prove zero-ID. No output was kept."},
-            )
-            return
-        except LabRequestError as exc:
-            self._json(HTTPStatus.UNPROCESSABLE_ENTITY, {"ok": False, "error": f"{exc} No output was kept."})
-            return
-        except (FontBlindError, WebBuildError, ValueError, OSError):
-            self._json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"ok": False, "error": "This font could not satisfy the zero-ID fidelity checks. No output was kept."},
-            )
-            return
-        except Exception:
-            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "Processing failed safely. No output was kept."})
-            return
+                    token, job = self.server.jobs.create_variable(payloads)
+            except BrowserCompatibilityError:
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"ok": False, "error": "This font is missing structure required by modern browsers. No output was kept."},
+                )
+                return
+            except ZeroIdPolicyError:
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"ok": False, "error": "This font contains data FontBlind cannot yet prove zero-ID. No output was kept."},
+                )
+                return
+            except LabRequestError as exc:
+                self._json(HTTPStatus.UNPROCESSABLE_ENTITY, {"ok": False, "error": f"{exc} No output was kept."})
+                return
+            except (FontBlindError, WebBuildError, ValueError, OSError):
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"ok": False, "error": "This font could not satisfy the zero-ID fidelity checks. No output was kept."},
+                )
+                return
+            except Exception:
+                self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "Processing failed safely. No output was kept."})
+                return
 
-        self._public_result(token, job)
+            self._public_result(token, job)
+        finally:
+            self.server.worker_gate.release()
 
     def do_DELETE(self) -> None:  # noqa: N802
         if not self._host_ok():
