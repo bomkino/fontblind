@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fontblind-local"
+version = "3.4.0"
+description = "Local-only macOS app for zero-ID fonts, mechanical slants, and donor-built variable fonts."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE.txt" }
+dependencies = [
+  "fonttools>=4.63,<5",
+  "Brotli>=1.1,<2",
+  "uharfbuzz>=0.56,<0.57",
+]
+
+[project.scripts]
+fontblind-local = "fontblind_app:main"
+
+[tool.setuptools]
+py-modules = [
+  "fontblind",
+  "fontblind_app",
+  "fontblind_entry",
+  "fontblind_lab",
+  "fontblind_outline",
+  "fontblind_pipeline",
+  "fontblind_policy",
+  "fontblind_surgical",
+  "fontblind_web",
+  "fontblind_worker",
+  "gauntlet",
+]
+
+[tool.setuptools.data-files]
+"share/fontblind/web" = ["web/index.html", "web/styles.css", "web/app.js", "web/favicon.svg"]

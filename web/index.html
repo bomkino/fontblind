@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f0eee3">
+    <title>FontBlind</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body data-active-tool="blind">
+    <div class="grain" aria-hidden="true"></div>
+    <header class="masthead">
+      <button class="wordmark" type="button" data-workspace-target="blind" aria-label="Open Blind workspace">
+        <span>FONT</span><span class="blind-word">BLIND</span>
+      </button>
+      <div class="local-mark"><i></i> LOCAL ONLY</div>
+    </header>
+
+    <nav class="workbench-index" aria-label="Local font workspaces">
+      <button class="tool-link is-current" type="button" data-workspace-target="blind" aria-current="page">
+        <span class="tool-number">01</span>
+        <span class="tool-name">Blind</span>
+        <span class="tool-job">Remove labels</span>
+      </button>
+      <button class="tool-link" type="button" data-workspace-target="oblique">
+        <span class="tool-number">02</span>
+        <span class="tool-name">Oblique Lab</span>
+        <span class="tool-job">Build a mechanical slant</span>
+      </button>
+      <button class="tool-link" type="button" data-workspace-target="variable">
+        <span class="tool-number">03</span>
+        <span class="tool-name">Variable Lab</span>
+        <span class="tool-job">Join weight + width donors</span>
+      </button>
+    </nav>
+
+    <main>
+      <section class="workspace" data-workspace="blind" aria-labelledby="blind-heading">
+        <section class="intro">
+          <p class="kicker">TYPE IN. LABELS OUT.</p>
+          <h1 id="blind-heading">Keep the face.<br><em>Lose the name.</em></h1>
+          <p class="lede">A faithful native font and a web-ready WOFF2. Built here. Never leaves this Mac. No history stored.</p>
+        </section>
+
+        <section class="machine" data-machine="blind" aria-labelledby="blind-machine-title">
+          <div class="machine-topline">
+            <h2 id="blind-machine-title">THE BLIND MACHINE</h2>
+            <span class="step-count" data-step-count>01 / 03</span>
+          </div>
+
+          <input data-file-input type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden>
+          <button class="dropzone" data-dropzone type="button">
+            <span class="drop-icon" aria-hidden="true">
+              <svg viewBox="0 0 64 64"><path d="M32 10v30M19 27l13 13 13-13M12 49h40"/></svg>
+            </span>
+            <span class="drop-title">Drop one TTF or OTF</span>
+            <span class="drop-sub">or click to choose</span>
+          </button>
+
+          <div class="processing" data-processing hidden aria-live="polite" aria-atomic="true">
+            <div class="scan-field" aria-hidden="true">
+              <span>A</span><span>g</span><span>R</span><span>7</span><span>&amp;</span>
+              <b></b>
+            </div>
+            <p class="process-stage">Rebuilding and verifying locally</p>
+            <div class="progress-track"><i></i></div>
+            <p class="process-note">Source stays on this machine and is discarded after verification.</p>
+          </div>
+
+          <div class="result" data-result hidden>
+            <div class="success-line"><span>PASS</span> Zero-ID package ready</div>
+            <p class="result-truth">Same working face. Original identity and embedding labels removed.</p>
+
+            <label class="specimen-label" for="blind-specimen">LIVE SANITISED FONT</label>
+            <textarea id="blind-specimen" class="specimen" data-specimen rows="2" spellcheck="false">Sphinx of black quartz, judge my vow.</textarea>
+
+            <div class="downloads">
+              <a data-download="native" class="download-card" href="#">
+                <span class="file-kind">DESKTOP</span>
+                <strong>Native font</strong>
+                <small data-native-note>Outline flavour retained</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="web" class="download-card" href="#">
+                <span class="file-kind">WEB</span>
+                <strong>Full WOFF2</strong>
+                <small>Complete repertoire, browser-ready</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="css" class="download-card" href="#">
+                <span class="file-kind">CSS</span>
+                <strong>Clean @font-face</strong>
+                <small>Generic family name. No source clue.</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="bundle" class="download-card bundle-card" href="#">
+                <span class="file-kind">COMPLETE PACKAGE</span>
+                <strong>Take all three</strong>
+                <small>Native + WOFF2 + clean CSS</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+            </div>
+
+            <div class="proof" aria-label="Verification checks">
+              <h3>PROOF, NOT PROMISES</h3>
+              <ul data-check-list></ul>
+            </div>
+
+            <button class="again" data-reset type="button">Blind another font</button>
+          </div>
+
+          <div class="error" data-error hidden role="alert">
+            <span>STOPPED SAFELY</span>
+            <p data-error-text>This font could not be processed.</p>
+            <button data-reset type="button">Try another font</button>
+          </div>
+        </section>
+
+        <section class="contract" aria-label="Blind contract">
+          <div><b>01</b><strong>Faithful</strong><span>No outline conversion. No fake upgrade.</span></div>
+          <div><b>02</b><strong>Blind</strong><span>No original names, makers, embedding labels, paths, or CSS clues.</span></div>
+          <div><b>03</b><strong>Local</strong><span>No account. No cloud API. No external network.</span></div>
+        </section>
+      </section>
+
+      <section class="workspace" data-workspace="oblique" aria-labelledby="oblique-heading" hidden>
+        <section class="intro">
+          <p class="kicker">MECHANICAL SLANT, DECLARED.</p>
+          <h1 id="oblique-heading">Lean the face.<br><em>Tell the truth.</em></h1>
+          <p class="lede">A controlled geometric slant, then local correction and verification. Useful Oblique. Never mislabelled as a drawn Italic.</p>
+        </section>
+
+        <section class="lab-brief" aria-label="Oblique method">
+          <p><span>WHAT IT IS</span> A mechanical transformation of the upright.</p>
+          <p><span>WHAT IT IS NOT</span> A designed italic with new letterforms.</p>
+        </section>
+
+        <section class="machine" data-machine="oblique" aria-labelledby="oblique-machine-title">
+          <div class="machine-topline">
+            <h2 id="oblique-machine-title">THE OBLIQUE BENCH</h2>
+            <span class="step-count" data-step-count>01 / 03</span>
+          </div>
+
+          <div class="angle-bench">
+            <div class="angle-copy">
+              <span class="bench-label">SLANT ANGLE</span>
+              <strong><output data-angle-output for="oblique-angle">12</output><sup>°</sup></strong>
+              <small>4° restrained · 20° forceful</small>
+            </div>
+            <div class="angle-control">
+              <input id="oblique-angle" data-angle-range type="range" min="4" max="20" step="1" value="12" aria-label="Oblique angle in degrees">
+              <label for="oblique-angle-number">Set exact angle</label>
+              <span><input id="oblique-angle-number" data-angle-number type="number" min="4" max="20" step="1" value="12"> degrees</span>
+              <fieldset class="output-mode">
+                <legend>Oblique output</legend>
+                <span class="output-mode-title" aria-hidden="true">OUTPUT</span>
+                <label><input type="radio" name="oblique-output" value="static" data-oblique-output checked><span><b>STATIC</b> One Oblique companion</span></label>
+                <label><input type="radio" name="oblique-output" value="slnt" data-oblique-output><span><b>SLANT AXIS</b> Upright → Oblique variable font</span></label>
+              </fieldset>
+            </div>
+          </div>
+
+          <input data-file-input type="file" accept=".ttf,font/ttf" hidden>
+          <button class="dropzone lab-dropzone" data-dropzone type="button">
+            <span class="drop-icon slant-icon" aria-hidden="true">A</span>
+            <span class="drop-title">Drop one upright TTF</span>
+            <span class="drop-sub">mechanical Oblique · not designed Italic</span>
+          </button>
+
+          <div class="processing" data-processing hidden aria-live="polite" aria-atomic="true">
+            <div class="scan-field oblique-scan" aria-hidden="true">
+              <span>H</span><span>a</span><span>m</span><span>b</span><span>g</span>
+              <b></b>
+            </div>
+            <p class="process-stage">Slanting, correcting, and verifying locally</p>
+            <div class="progress-track"><i></i></div>
+            <p class="process-note">Output remains a mechanical Oblique. No source name is retained.</p>
+          </div>
+
+          <div class="result" data-result hidden>
+            <div class="success-line"><span>PASS</span> <b data-success-copy>Mechanical Oblique package ready</b></div>
+            <p class="result-truth" data-result-context>Built at 12°. This is an Oblique, not a designed Italic.</p>
+
+            <label class="specimen-label" for="oblique-specimen">LIVE MECHANICAL OBLIQUE</label>
+            <textarea id="oblique-specimen" class="specimen" data-specimen rows="2" spellcheck="false">Pack my box with five dozen liquor jugs.</textarea>
+            <section class="axis-lab" data-axis-panel hidden aria-label="Live variation controls"></section>
+
+            <div class="downloads">
+              <a data-download="native" class="download-card" href="#">
+                <span class="file-kind">DESKTOP</span>
+                <strong data-native-title>Oblique font</strong>
+                <small data-native-note>Mechanical slant, locally checked</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="web" class="download-card" href="#">
+                <span class="file-kind">WEB</span>
+                <strong data-web-title>Oblique WOFF2</strong>
+                <small>Full repertoire, browser-ready</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="css" class="download-card" href="#">
+                <span class="file-kind">CSS</span>
+                <strong>Clean @font-face</strong>
+                <small data-css-note>Oblique style, generic family name</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="bundle" class="download-card bundle-card" href="#">
+                <span class="file-kind">COMPLETE PACKAGE</span>
+                <strong data-bundle-title>Take the Oblique set</strong>
+                <small>Native + WOFF2 + clean CSS</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+            </div>
+
+            <div class="proof" aria-label="Oblique verification checks">
+              <h3>PROOF, NOT POSTURE</h3>
+              <ul data-check-list></ul>
+            </div>
+
+            <button class="again" data-reset type="button">Make another Oblique</button>
+          </div>
+
+          <div class="error" data-error hidden role="alert">
+            <span>NO FAKE ITALIC</span>
+            <p data-error-text>This font could not be transformed and verified as a mechanical Oblique. No output was kept.</p>
+            <button data-reset type="button">Try another upright</button>
+          </div>
+        </section>
+
+        <section class="contract" aria-label="Oblique Lab contract">
+          <div><b>01</b><strong>Mechanical</strong><span>Declared affine slant. No invented italic authorship.</span></div>
+          <div><b>02</b><strong>Corrected</strong><span>Spacing, clipping, anchors, marks, and layout must survive.</span></div>
+          <div><b>03</b><strong>Blind</strong><span>Final package carries no original identity or embedding labels.</span></div>
+        </section>
+      </section>
+
+      <section class="workspace" data-workspace="variable" aria-labelledby="variable-heading" hidden>
+        <section class="intro">
+          <p class="kicker">REAL DONORS. ONE CONTINUUM.</p>
+          <h1 id="variable-heading">Join the family.<br><em>Mind every axis.</em></h1>
+          <p class="lede">Give Variable Lab 2–12 compatible TrueType donors. It builds registered <code>wght</code>, <code>wdth</code>, or two-axis systems from real drawings—not an imaginary family from one font.</p>
+        </section>
+
+        <section class="lab-brief variable-brief" aria-label="Variable method">
+          <p><span>COORDINATES</span> Weight and width coordinates come from OpenType structure, never filenames.</p>
+          <p><span>BOUNDARY</span> Incompatible drawings stop safely. Nothing gets forced through.</p>
+        </section>
+
+        <section class="machine" data-machine="variable" aria-labelledby="variable-machine-title">
+          <div class="machine-topline">
+            <h2 id="variable-machine-title">THE VARIABLE RACK</h2>
+            <span class="step-count" data-step-count>01 / 03</span>
+          </div>
+
+          <div class="donor-rack" aria-hidden="true">
+            <span>02</span><i></i><span>04</span><i></i><span>06</span><i></i><span>08</span><i></i><span>12</span>
+          </div>
+
+          <input data-file-input type="file" accept=".ttf,font/ttf" multiple hidden>
+          <button class="dropzone lab-dropzone variable-dropzone" data-dropzone type="button">
+            <span class="drop-icon donor-icon" aria-hidden="true"><i>A</i><i>A</i><i>A</i></span>
+            <span class="drop-title">Drop 2–12 compatible TTF donors</span>
+            <span class="drop-sub">weights, widths, or a real two-axis grid · filenames never used</span>
+          </button>
+
+          <div class="processing" data-processing hidden aria-live="polite" aria-atomic="true">
+            <div class="scan-field variable-scan" aria-hidden="true">
+              <span>A</span><span>A</span><span>A</span><span>A</span><span>A</span>
+              <b></b>
+            </div>
+            <p class="process-stage">Matching masters and testing interpolation</p>
+            <div class="progress-track"><i></i></div>
+            <p class="process-note" data-process-context>Weight and width coordinates come from font structure. Incompatible donors stop here.</p>
+          </div>
+
+          <div class="result" data-result hidden>
+            <div class="success-line"><span>PASS</span> Variable system ready</div>
+            <p class="result-truth" data-result-context>Real donor masters joined. Functional coordinates inferred from font structure.</p>
+
+            <label class="specimen-label" for="variable-specimen">LIVE VARIABLE FONT</label>
+            <textarea id="variable-specimen" class="specimen variable-specimen" data-specimen rows="2" spellcheck="false">Waltz, bad nymph, for quick jigs vex.</textarea>
+            <section class="axis-lab" data-axis-panel hidden aria-label="Live variation controls"></section>
+
+            <div class="downloads">
+              <a data-download="native" class="download-card" href="#">
+                <span class="file-kind">DESKTOP</span>
+                <strong>Variable TTF</strong>
+                <small data-native-note>Donor-driven axis system</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="web" class="download-card" href="#">
+                <span class="file-kind">WEB</span>
+                <strong>Variable WOFF2</strong>
+                <small>Full repertoire, browser-ready</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="css" class="download-card" href="#">
+                <span class="file-kind">CSS</span>
+                <strong>Clean variable CSS</strong>
+                <small>Generic family and registered axis ranges</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+              <a data-download="bundle" class="download-card bundle-card" href="#">
+                <span class="file-kind">COMPLETE PACKAGE</span>
+                <strong>Take the variable set</strong>
+                <small>Variable TTF + WOFF2 + clean CSS</small>
+                <span class="arrow" aria-hidden="true">↓</span>
+              </a>
+            </div>
+
+            <div class="proof" aria-label="Variable-font verification checks">
+              <h3>PROOF BETWEEN MASTERS</h3>
+              <ul data-check-list></ul>
+            </div>
+
+            <button class="again" data-reset type="button">Join another family</button>
+          </div>
+
+          <div class="error" data-error hidden role="alert">
+            <span>DONORS REFUSED</span>
+            <p data-error-text>These donors could not form one compatible weight/width system. No font was kept.</p>
+            <button data-reset type="button">Try another donor set</button>
+          </div>
+        </section>
+
+        <section class="contract" aria-label="Variable Lab contract">
+          <div><b>01</b><strong>Donor-led</strong><span>Two to twelve real TTF donors. No single-font fantasy axis.</span></div>
+          <div><b>02</b><strong>Compatible</strong><span>Unsafe glyphs or layouts stop the build instead of hiding damage.</span></div>
+          <div><b>03</b><strong>Inferred</strong><span>Registered weight and width coordinates follow font structure, not source filenames.</span></div>
+        </section>
+      </section>
+    </main>
+
+    <footer>
+      <span>FONTBLIND / LOCAL TYPE WORKSHOP</span>
+      <span>FILES EXPIRE WHEN THIS APP CLOSES</span>
+    </footer>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
