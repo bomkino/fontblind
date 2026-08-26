@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.5.0 — 2026-08-26
 
 - Centralize the release version so every CLI, engine, package, and report identifies the same build.
 - Replace Variable Lab's base64/JSON donor upload with a bounded binary font-set envelope.
