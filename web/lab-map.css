@@ -1,0 +1,170 @@
+.master-map-shell {
+  margin: 1.35rem 0 1.7rem;
+  padding: 1rem;
+  border: 1px solid var(--ink);
+  background: rgba(255, 255, 255, .22);
+}
+
+.master-map-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .85rem;
+}
+
+.master-map-heading strong {
+  font-size: .69rem;
+  font-weight: 900;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.master-map-heading span {
+  max-width: 32rem;
+  color: var(--quiet);
+  font-family: var(--serif);
+  font-size: .86rem;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.master-map {
+  position: relative;
+  min-height: 13rem;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  background:
+    linear-gradient(to right, transparent 49.8%, var(--rule) 50%, transparent 50.2%),
+    linear-gradient(to bottom, transparent 49.8%, var(--rule) 50%, transparent 50.2%),
+    repeating-linear-gradient(to right, transparent 0 calc(25% - 1px), rgba(23, 23, 16, .08) calc(25% - 1px) 25%),
+    repeating-linear-gradient(to bottom, transparent 0 calc(25% - 1px), rgba(23, 23, 16, .08) calc(25% - 1px) 25%),
+    var(--paper-deep);
+}
+
+.master-map.is-1d {
+  min-height: 8.5rem;
+  background:
+    linear-gradient(to bottom, transparent calc(50% - .5px), var(--ink) calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px)),
+    repeating-linear-gradient(to right, transparent 0 calc(25% - 1px), rgba(23, 23, 16, .1) calc(25% - 1px) 25%),
+    var(--paper-deep);
+}
+
+.master-map-axis {
+  position: absolute;
+  z-index: 1;
+  color: var(--quiet);
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.master-map-axis.is-x {
+  right: .55rem;
+  bottom: .45rem;
+}
+
+.master-map-axis.is-y {
+  top: .55rem;
+  left: .55rem;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.master-pin {
+  --pin-size: 2.55rem;
+  position: absolute;
+  z-index: 2;
+  left: var(--master-x);
+  top: var(--master-y);
+  display: grid;
+  place-items: center;
+  width: var(--pin-size);
+  height: var(--pin-size);
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .03em;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.master-pin:hover,
+.master-pin:focus-visible {
+  z-index: 4;
+  outline: 3px solid var(--active-accent);
+  outline-offset: 3px;
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.master-pin.is-default::after {
+  content: "D";
+  position: absolute;
+  right: -.42rem;
+  top: -.42rem;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  font-size: .48rem;
+}
+
+.master-pin.is-active {
+  color: var(--ink);
+  background: var(--active-accent);
+  box-shadow: 0 0 0 2px var(--ink);
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.master-map-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem 1rem;
+  margin-top: .75rem;
+  color: var(--quiet);
+  font-size: .62rem;
+  line-height: 1.35;
+}
+
+.master-map-key code {
+  color: var(--ink);
+  font-size: .62rem;
+  font-weight: 800;
+}
+
+@media (max-width: 680px) {
+  .master-map-heading {
+    display: block;
+  }
+
+  .master-map-heading span {
+    display: block;
+    margin-top: .35rem;
+    text-align: left;
+  }
+
+  .master-map {
+    min-height: 11rem;
+  }
+
+  .master-pin {
+    --pin-size: 2.35rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .master-pin {
+    transition: none;
+  }
+}
