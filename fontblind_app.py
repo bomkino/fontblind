@@ -418,6 +418,7 @@ class Handler(BaseHTTPRequestHandler):
             "/index.html": (WEB_ROOT / "index.html", "text/html; charset=utf-8"),
             "/styles.css": (WEB_ROOT / "styles.css", "text/css; charset=utf-8"),
             "/app.js": (WEB_ROOT / "app.js", "text/javascript; charset=utf-8"),
+            "/lab-proof.js": (WEB_ROOT / "lab-proof.js", "text/javascript; charset=utf-8"),
             "/favicon.svg": (WEB_ROOT / "favicon.svg", "image/svg+xml"),
             "/lab-map.css": (WEB_ROOT / "lab-map.css", "text/css; charset=utf-8"),
         }

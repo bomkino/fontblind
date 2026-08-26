@@ -45,6 +45,12 @@ Successful `slnt`, `wght`, and `wdth` builds expose functional master records on
 
 No filename, family name, path, hash, or source label crosses into the page. Pins are keyboard-operable presets: selecting one moves every registered axis to that exact donor location. Sliders still inspect the continuum between masters.
 
+## Deterministic designspace proof grid
+
+The browser derives a small proof matrix from public axis bounds only. A one-axis build renders three distinct locations when possible: min, default, max, or a midpoint when default and one endpoint coincide. A two-axis build renders the Cartesian product of those samples, capped at nine tiles. Each tile uses the generated WOFF2, identifies exact anonymous masters, and is a keyboard-operable preset for the live controls.
+
+The proof module is separate from the application controller and exports pure coordinate-generation functions. Node tests cover ordering, merged endpoint roles, master recognition, source-identity absence, and malformed designspaces. It does not invent new masters or claim that a visual sample replaces outline and shaping verification.
+
 ## Gauntlet
 
 `lab_gauntlet.py` repeats complete Lab builds and compares package digests.
@@ -58,8 +64,8 @@ The tool is intentionally explicit about variable donor sets. Guessing families 
 
 ## Next, in order
 
-1. Sample axis corners and deterministic interior points, then produce a local visual proof sheet.
+1. Add static-instance export with explicit selected coordinates and the same zero-ID exit checks.
 2. Add optional Fontspector profiles and Diffenator-compatible proof export without making either a runtime dependency.
 3. Add glyph-level incompatibility heatmaps and repair bundles.
-4. Add static-instance export with explicit selected coordinates.
+4. Add downloadable local proof sheets after their privacy and font-embedding contract is explicit.
 5. Keep designed Italic, optical-size authoring, and model proposals behind reviewable research lanes.

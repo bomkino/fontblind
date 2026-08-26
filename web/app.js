@@ -351,6 +351,7 @@ function renderAxes(name, axes = [], masters = []) {
   const values = new Map(axes.map((axis) => [axis.tag, axis.default]));
   const controls = new Map();
   const pins = new Map();
+  let proofController = null;
   axisValues.set(name, values);
 
   const heading = document.createElement("div");
@@ -374,10 +375,11 @@ function renderAxes(name, axes = [], masters = []) {
       if (active) entry.button.dataset.activeMaster = id;
       else delete entry.button.dataset.activeMaster;
     }
+    if (proofController) proofController.sync(values);
   }
 
-  function selectMaster(master) {
-    for (const [tag, value] of Object.entries(master.location)) {
+  function selectLocation(location) {
+    for (const [tag, value] of Object.entries(location)) {
       values.set(tag, value);
       const control = controls.get(tag);
       if (control) {
@@ -437,7 +439,7 @@ function renderAxes(name, axes = [], masters = []) {
       pin.textContent = master.id;
       pin.setAttribute("aria-label", `${master.id}: ${coordinates}${master.default ? ", default master" : ""}`);
       pin.setAttribute("aria-pressed", "false");
-      pin.addEventListener("click", () => selectMaster(master));
+      pin.addEventListener("click", () => selectLocation(master.location));
       map.append(pin);
       pins.set(master.id, { button: pin, master });
 
@@ -493,6 +495,13 @@ function renderAxes(name, axes = [], masters = []) {
     }
     row.append(label, range, bounds);
     panel.append(row);
+  }
+
+  if (window.FontBlindProof && axes.length <= 2) {
+    proofController = window.FontBlindProof.render(panel, axes, masters, {
+      fontFamily: tools.get(name).specimen.style.fontFamily,
+      onSelect: selectLocation
+    });
   }
   panel.hidden = false;
   applyAxisValues(name);

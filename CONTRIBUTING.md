@@ -8,6 +8,8 @@ FontBlind welcomes focused bug reports, reproducible font-format edge cases, tes
 python -m pip install .
 python -m pip check
 node --check web/app.js
+node --check web/lab-proof.js
+node --test tests/lab-proof.test.cjs
 python -m unittest discover -s tests -v
 ```
 
