@@ -16,7 +16,7 @@ The exact final commit must pass all of the following in `.github/workflows/test
 - Ad-hoc-signed macOS package build.
 - Frozen-server Blind, Oblique, `slnt`, Variable, static-instance, download, ZIP, cleanup, and parent/child gauntlet.
 - Every pinned corpus asset processed through the exact frozen server before signing.
-- The packaged corpus gate infers variable status only from reviewed public axes, then independently confirms the downloaded native font's `fvar` table; private internal descriptors never become a browser contract.
+- Blind’s public response deliberately does not expose the internal `variable` flag. The packaged corpus gate therefore confirms the downloaded native font’s actual `fvar` table instead of inventing a new browser-visible model field.
 - The exact-runtime client honours only the authored `429` sealed-download back-pressure, retries it for at most one second, and reports any other status with the returned safe payload rather than hiding a failed download.
 - Bundle signature, release ZIP, checksum, and ZIP integrity checks.
 
