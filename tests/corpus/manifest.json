@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "generated_for": "FontBlind 3.6 release gate",
+  "assets": [
+    {
+      "id": "latin-static-ttf",
+      "filename": "latin-static.ttf",
+      "role": "Static TrueType baseline, composites, hinting, kerning and Latin shaping",
+      "script": "Latin",
+      "source_repository": "google/fonts",
+      "source_commit": "6a003b5eb672dc8bf5bff5937cf5863f8b175445",
+      "source_path": "ofl/abeezee/ABeeZee-Regular.ttf",
+      "url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/abeezee/ABeeZee-Regular.ttf",
+      "size": 46016,
+      "sha256": "2901c8df256648cc2bb2e3afb381cb8d28e65ed3dbe11de20695ae4d5ffdeda9",
+      "license": "OFL-1.1",
+      "license_url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/abeezee/OFL.txt"
+    },
+    {
+      "id": "cff-static-otf",
+      "filename": "cff-static.otf",
+      "role": "Static non-CID CFF1 baseline and PostScript metadata rewriting",
+      "script": "Latin",
+      "source_repository": "adobe-fonts/source-code-pro",
+      "source_commit": "803b7e23ec97ae58b6232ea76519a76d428ba268",
+      "source_path": "OTF/SourceCodePro-Regular.otf",
+      "url": "https://raw.githubusercontent.com/adobe-fonts/source-code-pro/803b7e23ec97ae58b6232ea76519a76d428ba268/OTF/SourceCodePro-Regular.otf",
+      "size": 131128,
+      "sha256": "9f9664e2edf6f045c11e774f9bd0be6993971f2544a39061a5ce478b96b051f8",
+      "license": "OFL-1.1",
+      "license_url": "https://raw.githubusercontent.com/adobe-fonts/source-code-pro/803b7e23ec97ae58b6232ea76519a76d428ba268/LICENSE.md"
+    },
+    {
+      "id": "arabic-variable-ttf",
+      "filename": "arabic-variable.ttf",
+      "role": "Arabic cursive shaping, marks, GDEF/GPOS/GSUB and two-axis variable preservation",
+      "script": "Arabic",
+      "source_repository": "google/fonts",
+      "source_commit": "6a003b5eb672dc8bf5bff5937cf5863f8b175445",
+      "source_path": "ofl/notosansarabic/NotoSansArabic[wdth,wght].ttf",
+      "url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf",
+      "size": 844676,
+      "sha256": "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e",
+      "license": "OFL-1.1",
+      "license_url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/notosansarabic/OFL.txt"
+    },
+    {
+      "id": "devanagari-variable-ttf",
+      "filename": "devanagari-variable.ttf",
+      "role": "Devanagari conjuncts, reordering, marks and two-axis variable preservation",
+      "script": "Devanagari",
+      "source_repository": "google/fonts",
+      "source_commit": "6a003b5eb672dc8bf5bff5937cf5863f8b175445",
+      "source_path": "ofl/notosansdevanagari/NotoSansDevanagari[wdth,wght].ttf",
+      "url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/notosansdevanagari/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf",
+      "size": 647144,
+      "sha256": "9ce7b04f60e363d8870e5997744cf85cf69d38a4d7d129d364d92a3b14b461d7",
+      "license": "OFL-1.1",
+      "license_url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/notosansdevanagari/OFL.txt"
+    },
+    {
+      "id": "hebrew-variable-ttf",
+      "filename": "hebrew-variable.ttf",
+      "role": "Hebrew combining marks, right-to-left shaping and real donor-derived Variable Lab coverage",
+      "script": "Hebrew",
+      "source_repository": "google/fonts",
+      "source_commit": "6a003b5eb672dc8bf5bff5937cf5863f8b175445",
+      "source_path": "ofl/notosanshebrew/NotoSansHebrew[wdth,wght].ttf",
+      "url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/notosanshebrew/NotoSansHebrew%5Bwdth%2Cwght%5D.ttf",
+      "size": 112640,
+      "sha256": "7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88",
+      "license": "OFL-1.1",
+      "license_url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/notosanshebrew/OFL.txt"
+    },
+    {
+      "id": "thai-variable-ttf",
+      "filename": "thai-variable.ttf",
+      "role": "Thai mark positioning, clusters and two-axis variable preservation",
+      "script": "Thai",
+      "source_repository": "google/fonts",
+      "source_commit": "6a003b5eb672dc8bf5bff5937cf5863f8b175445",
+      "source_path": "ofl/notosansthai/NotoSansThai[wdth,wght].ttf",
+      "url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/notosansthai/NotoSansThai%5Bwdth%2Cwght%5D.ttf",
+      "size": 218652,
+      "sha256": "5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8",
+      "license": "OFL-1.1",
+      "license_url": "https://raw.githubusercontent.com/google/fonts/6a003b5eb672dc8bf5bff5937cf5863f8b175445/ofl/notosansthai/OFL.txt"
+    }
+  ]
+}
