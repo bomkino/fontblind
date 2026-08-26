@@ -35,7 +35,7 @@ _OUTPUT_NAMES = (
 )
 
 
-def _verify_staged_outputs(
+def verify_static_instance_outputs(
     source: Path,
     native: Path,
     web: Path,
@@ -98,7 +98,7 @@ def build_static_instance_outputs(
     with tempfile.TemporaryDirectory(prefix=".fontblind-instance-proof-stage-", dir=str(output_dir.parent)) as temp_text:
         stage = Path(temp_text) / "output"
         result = _build_static_instance_outputs(source, stage, location=location)
-        _verify_staged_outputs(
+        verify_static_instance_outputs(
             source,
             stage / result.native.filename,
             stage / result.web.filename,
@@ -116,5 +116,6 @@ def build_static_instance_outputs(
 __all__ = [
     "StaticInstanceError",
     "StaticInstanceProofError",
+    "verify_static_instance_outputs",
     "build_static_instance_outputs",
 ]
