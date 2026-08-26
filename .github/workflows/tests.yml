@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
 
+# Temporary branch trigger keeps Gate 3/4 validation pinned to this exact tree.
 concurrency:
   group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
