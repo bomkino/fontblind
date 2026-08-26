@@ -43,4 +43,4 @@ py-modules = [
 ]
 
 [tool.setuptools.data-files]
-"share/fontblind/web" = ["web/index.html", "web/styles.css", "web/lab-map.css", "web/lab-proof.js", "web/instance-export.js", "web/app.js", "web/favicon.svg"]
+"share/fontblind/web" = ["web/index.html", "web/styles.css", "web/lab-map.css", "web/lab-proof.js", "web/result-contract.js", "web/instance-export.js", "web/app.js", "web/favicon.svg"]
