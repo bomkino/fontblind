@@ -18,6 +18,11 @@ class RecordingReader(io.BytesIO):
         return super().read(size)
 
 
+class FailingReader(io.BytesIO):
+    def read(self, size: int = -1) -> bytes:
+        raise TimeoutError("simulated stalled local upload")
+
+
 class ShortWriter(io.BytesIO):
     def write(self, payload: bytes | bytearray | memoryview) -> int:
         view = memoryview(payload)
@@ -45,6 +50,10 @@ class BoundedStreamTests(unittest.TestCase):
     def test_interrupted_upload_fails_closed(self) -> None:
         with self.assertRaises(StreamInterruptedError):
             copy_exact(io.BytesIO(b"short"), io.BytesIO(), 20)
+        with self.assertRaises(StreamInterruptedError):
+            copy_exact(FailingReader(b"font"), io.BytesIO(), 4)
+        with self.assertRaises(StreamInterruptedError):
+            copy_exact(io.BytesIO(b"font"), io.BytesIO(), 4, deadline_seconds=1e-12)
 
     def test_invalid_lengths_and_chunk_sizes_are_rejected(self) -> None:
         for length in (0, -1):
@@ -53,6 +62,9 @@ class BoundedStreamTests(unittest.TestCase):
         for chunk_size in (0, COPY_CHUNK_BYTES + 1):
             with self.subTest(chunk_size=chunk_size), self.assertRaises(ValueError):
                 copy_exact(io.BytesIO(b"font"), io.BytesIO(), 4, chunk_size=chunk_size)
+        for deadline in (0, -1, float("inf"), float("nan")):
+            with self.subTest(deadline=deadline), self.assertRaises(ValueError):
+                copy_exact(io.BytesIO(b"font"), io.BytesIO(), 4, deadline_seconds=deadline)
 
 
 if __name__ == "__main__":

@@ -354,6 +354,9 @@ class HttpBoundaryTests(unittest.TestCase):
         self.assertIn(b"FontBlind", payload)
         self.assertEqual(headers["Cache-Control"], "no-store, max-age=0")
         self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+        self.assertEqual(headers["Cross-Origin-Opener-Policy"], "same-origin")
+        self.assertEqual(headers["Origin-Agent-Cluster"], "?1")
+        self.assertIn("camera=()", headers["Permissions-Policy"])
         self.assertIn("connect-src 'self'", headers["Content-Security-Policy"])
 
     def test_invalid_host_and_missing_session_are_rejected(self) -> None:
@@ -399,6 +402,44 @@ class HttpBoundaryTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 413)
+
+    def test_pathological_content_length_is_rejected_without_integer_conversion(self) -> None:
+        status, _, payload = self.request(
+            "POST",
+            "/api/process",
+            body=b"",
+            headers={
+                "Content-Type": "application/octet-stream",
+                "Content-Length": "9" * 100,
+                "X-FontBlind-Session": self.session(),
+            },
+        )
+        self.assertEqual(status, 413)
+        self.assertIn(b"too large", payload)
+
+    def test_stalled_upload_releases_with_a_safe_error(self) -> None:
+        session = self.session()
+        with mock.patch("fontblind_app.UPLOAD_READ_TIMEOUT_SECONDS", 0.05):
+            with socket.create_connection(("127.0.0.1", self.port), timeout=10) as connection:
+                request = (
+                    "POST /api/process HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{self.port}\r\n"
+                    "Content-Type: application/octet-stream\r\n"
+                    f"X-FontBlind-Session: {session}\r\n"
+                    "Content-Length: 10\r\n"
+                    "Connection: close\r\n\r\n"
+                ).encode("ascii")
+                connection.sendall(request)
+                response = b""
+                while True:
+                    block = connection.recv(4096)
+                    if not block:
+                        break
+                    response += block
+        self.assertIn(b" 400 ", response.split(b"\r\n", 1)[0])
+        self.assertIn(b"upload was interrupted", response)
+        self.assertTrue(self.server.worker_gate.acquire(blocking=False))
+        self.server.worker_gate.release()
 
     def test_invalid_content_type_and_interrupted_upload_are_rejected(self) -> None:
         session = self.session()
@@ -593,10 +634,12 @@ class HttpBoundaryTests(unittest.TestCase):
         self.assertNotIn('"source":', public_text.casefold())
         self.assertFalse((self.root / token / "source.font").exists())
 
-        status, headers, native = self.request("GET", result["native"]["url"])
+        with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("download buffered whole output")):
+            status, headers, native = self.request("GET", result["native"]["url"])
         self.assertEqual(status, 200)
         self.assertGreater(len(native), 100)
         self.assertEqual(headers["Content-Disposition"], 'attachment; filename="fontblind-native.ttf"')
+        self.assertEqual(headers["Cross-Origin-Opener-Policy"], "same-origin")
 
         status, _, payload = self.request(
             "DELETE",

@@ -35,7 +35,7 @@ from fontblind_protocol import (
     read_font_set_header,
 )
 from fontblind_policy import BrowserCompatibilityError, ZeroIdPolicyError
-from fontblind_stream import StreamInterruptedError, copy_exact
+from fontblind_stream import COPY_CHUNK_BYTES, StreamInterruptedError, copy_exact
 from fontblind_surgical import FontBlindError
 from fontblind_web import WebBuildError
 
@@ -49,6 +49,7 @@ MAX_VARIABLE_TOTAL_BYTES = MAX_FONT_SET_BYTES
 JOB_TTL_SECONDS = 2 * 60 * 60
 JOB_RE = re.compile(r"^[a-f0-9]{32}$")
 WORKER_TIMEOUT_SECONDS = 5 * 60
+UPLOAD_READ_TIMEOUT_SECONDS = 30.0
 SWEEP_INTERVAL_SECONDS = 60
 OWNERSHIP_MARKER = ".fontblind-owned.json"
 
@@ -400,17 +401,32 @@ class Handler(BaseHTTPRequestHandler):
         # Request paths can contain opaque job tokens. Keep runtime silent.
         return
 
-    def _headers(self, status: int, media_type: str, length: int | None = None) -> None:
+    def _headers(
+        self,
+        status: int,
+        media_type: str,
+        length: int | None = None,
+        disposition: str | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", media_type)
         if length is not None:
             self.send_header("Content-Length", str(length))
+        if disposition is not None:
+            self.send_header("Content-Disposition", disposition)
         self.send_header("Cache-Control", "no-store, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Permitted-Cross-Domain-Policies", "none")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Origin-Agent-Cluster", "?1")
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), display-capture=(), geolocation=(), microphone=(), payment=(), usb=()",
+        )
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self' blob:; "
@@ -454,6 +470,9 @@ class Handler(BaseHTTPRequestHandler):
         if not value or not value.isascii() or not value.isdecimal():
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local upload framing."})
             return None
+        if len(value) > 20:
+            self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Local input is too large."})
+            return None
         length = int(value)
         if length <= 0:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": empty_error})
@@ -462,6 +481,27 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Local input is too large."})
             return None
         return length
+
+    def _download_file(self, target: Path, media_type: str, filename: str) -> None:
+        try:
+            stream = target.open("rb")
+            length = os.fstat(stream.fileno()).st_size
+        except OSError:
+            self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Output unavailable."})
+            return
+        with stream:
+            self._headers(
+                HTTPStatus.OK,
+                media_type,
+                length,
+                f'attachment; filename="{filename}"',
+            )
+            try:
+                shutil.copyfileobj(stream, self.wfile, length=COPY_CHUNK_BYTES)
+            except (BrokenPipeError, ConnectionResetError):
+                # The browser cancelled a local download. The stored output
+                # remains available until explicit reset or normal expiry.
+                return
 
     def _public_result(self, token: str, job: Job) -> None:
         public = job.result.to_public_dict()
@@ -500,19 +540,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             item = getattr(job.result, kind)
             target = job.path / "output" / item.filename
-            try:
-                payload = target.read_bytes()
-            except OSError:
-                self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Output unavailable."})
-                return
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", item.media_type)
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Content-Disposition", f'attachment; filename="{item.filename}"')
-            self.send_header("Cache-Control", "no-store, max-age=0")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(payload)
+            self._download_file(target, item.media_type, item.filename)
             return
 
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found."})
@@ -537,6 +565,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             try:
+                self.connection.settimeout(UPLOAD_READ_TIMEOUT_SECONDS)
                 media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
                 if path in {"/api/process", "/api/lab/oblique"}:
                     if media_type != "application/octet-stream":

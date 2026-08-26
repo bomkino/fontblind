@@ -48,6 +48,10 @@ class FontSetProtocolTests(unittest.TestCase):
         with self.assertRaises(FontSetError):
             read_font_set(io.BytesIO(valid[:-1]), str(len(valid)))
 
+    def test_rejects_huge_decimal_content_length_without_integer_conversion(self) -> None:
+        with self.assertRaises(FontSetTooLargeError):
+            read_font_set_header(io.BytesIO(b""), "9" * 100_000)
+
     def test_rejects_large_declared_fonts_without_allocating_them(self) -> None:
         lengths = [MAX_FONT_BYTES + 1, 1]
         body = FONT_SET_MAGIC + b"\x02" + b"".join(struct.pack(">I", value) for value in lengths)

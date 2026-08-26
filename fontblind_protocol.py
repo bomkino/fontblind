@@ -60,6 +60,8 @@ def _content_length(raw_value: str | None) -> int:
     value = raw_value.strip()
     if not value or not value.isascii() or not value.isdecimal():
         raise FontSetError("The local Lab request has an invalid content length.")
+    if len(value) > 20:
+        raise FontSetTooLargeError("The selected masters exceed the 256 MB local limit.")
     length = int(value)
     if length <= 0:
         raise FontSetError("The local Lab request is empty.")
@@ -72,7 +74,10 @@ def _read_exact(stream: BinaryIO, size: int) -> bytes:
     remaining = int(size)
     chunks: list[bytes] = []
     while remaining:
-        block = stream.read(remaining)
+        try:
+            block = stream.read(remaining)
+        except OSError as exc:
+            raise FontSetError("The local Lab upload was interrupted.") from exc
         if not block:
             raise FontSetError("The local Lab upload was interrupted.")
         if len(block) > remaining:
