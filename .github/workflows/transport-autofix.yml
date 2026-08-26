@@ -37,19 +37,8 @@ jobs:
           from pathlib import Path
           path = Path("fontblind_protocol.py")
           text = path.read_text(encoding="utf-8")
-          old = '''    while remaining:
-              block = stream.read(remaining)
-              if not block:
-                  raise FontSetError("The local Lab upload was interrupted.")
-          '''
-          new = '''    while remaining:
-              try:
-                  block = stream.read(remaining)
-              except OSError as exc:
-                  raise FontSetError("The local Lab upload was interrupted.") from exc
-              if not block:
-                  raise FontSetError("The local Lab upload was interrupted.")
-          '''
+          old = '    while remaining:\n        block = stream.read(remaining)\n        if not block:\n            raise FontSetError("The local Lab upload was interrupted.")\n'
+          new = '    while remaining:\n        try:\n            block = stream.read(remaining)\n        except OSError as exc:\n            raise FontSetError("The local Lab upload was interrupted.") from exc\n        if not block:\n            raise FontSetError("The local Lab upload was interrupted.")\n'
           if text.count(old) != 1:
               raise RuntimeError("protocol read boundary drifted")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
