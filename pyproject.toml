@@ -22,6 +22,7 @@ fontblind-local = "fontblind_runtime:main"
 py-modules = [
   "fontblind",
   "fontblind_app",
+  "fontblind_artifacts",
   "fontblind_contract",
   "fontblind_entry",
   "fontblind_instance",
