@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Local-only browser application for FontBlind."""
+"""Local-only browser application primitives for FontBlind."""
 from __future__ import annotations
 
-import argparse
 from contextlib import ExitStack
 import json
 import mimetypes
@@ -10,14 +9,12 @@ import os
 import re
 import secrets
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import uuid
-import webbrowser
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -520,6 +517,8 @@ class Handler(BaseHTTPRequestHandler):
             "/styles.css": (WEB_ROOT / "styles.css", "text/css; charset=utf-8"),
             "/app.js": (WEB_ROOT / "app.js", "text/javascript; charset=utf-8"),
             "/lab-proof.js": (WEB_ROOT / "lab-proof.js", "text/javascript; charset=utf-8"),
+            "/result-contract.js": (WEB_ROOT / "result-contract.js", "text/javascript; charset=utf-8"),
+            "/instance-export.js": (WEB_ROOT / "instance-export.js", "text/javascript; charset=utf-8"),
             "/favicon.svg": (WEB_ROOT / "favicon.svg", "image/svg+xml"),
             "/lab-map.css": (WEB_ROOT / "lab-map.css", "text/css; charset=utf-8"),
         }
@@ -655,42 +654,11 @@ class Handler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, {"ok": True, "deleted": deleted})
 
 
-def make_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run FontBlind on this machine only.")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=7331)
-    parser.add_argument("--no-open", action="store_true", help="do not open the browser automatically")
-    return parser
-
-
-def _stop_signal(_signum: int, _frame: object) -> None:
-    raise KeyboardInterrupt
-
-
 def main() -> int:
-    args = make_parser().parse_args()
-    if args.host not in {"127.0.0.1", "localhost"}:
-        raise SystemExit("FontBlind refuses non-loopback hosts.")
-    try:
-        server = FontBlindServer((args.host, args.port), Handler)
-    except OSError:
-        print("FontBlind could not open its local port. Close another FontBlind window or choose another port.", file=sys.stderr)
-        return 2
-    url = f"http://127.0.0.1:{server.server_port}"
-    print(f"FontBlind local: {url}", flush=True)
-    if not args.no_open:
-        threading.Timer(0.35, lambda: webbrowser.open(url)).start()
-    signal.signal(signal.SIGTERM, _stop_signal)
-    if hasattr(signal, "SIGHUP"):
-        signal.signal(signal.SIGHUP, _stop_signal)
-    try:
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.shutdown()
-        server.server_close()
-    return 0
+    """Delegate every source-level launch to the sole hardened runtime."""
+    from fontblind_runtime import main as runtime_main
+
+    return runtime_main()
 
 
 if __name__ == "__main__":
