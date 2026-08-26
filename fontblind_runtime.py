@@ -72,7 +72,12 @@ class ContractJobStore(JobStore):
                     expected_lane=lane,
                     require_source_discarded=True,
                 )
-                seals = validate_job_artifacts(job.path, job.result)
+                seals = validate_job_artifacts(
+                    job.path,
+                    job.result,
+                    mode=mode,
+                    options=options,
+                )
                 artifact_bytes = retained_artifact_bytes(seals)
                 with self._lock:
                     if self._jobs.get(token) is not job:
