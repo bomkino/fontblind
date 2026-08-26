@@ -52,7 +52,7 @@ class BrowserPrivacyAndAccessibilityTests(unittest.TestCase):
             'setAttribute("aria-busy"',
             'setAttribute("role", "status")',
             'setAttribute("aria-live", "polite")',
-            'data.skipWorkspace = "true"',
+            'skip.dataset.skipWorkspace = "true"',
             'dropzone.setAttribute("aria-describedby"',
             'bench.toggleAttribute("inert", busy)',
         ):
