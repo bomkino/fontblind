@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,6 +61,30 @@ class CssSemanticContractTests(unittest.TestCase):
             validate_job_artifacts(job, result, mode="instance", options={"location": location})
 
             css.write_text(original.replace("font-stretch: 87.5%", "font-stretch: 100%"), encoding="utf-8")
+            with self.assertRaises(BuildResultContractError):
+                validate_job_artifacts(job, result, mode="instance", options={"location": location})
+
+    def test_weight_only_instance_stretch_is_bound_to_static_width_class(self) -> None:
+        from fontblind_instance import build_static_instance_outputs
+
+        with tempfile.TemporaryDirectory(prefix="fontblind-fixed-stretch-semantics-") as temp_text:
+            root = Path(temp_text)
+            regular = root / "regular.ttf"
+            bold = root / "bold.ttf"
+            write_fixture_font(regular, weight=400, width_class=3, family="CSS Fixed Stretch Regular")
+            write_fixture_font(bold, weight=700, width_class=3, family="CSS Fixed Stretch Bold")
+            variable_dir = root / "variable"
+            variable = build_variable_outputs([regular, bold], variable_dir)
+            job = root / "job"
+            location = {"wght": 550.0}
+            result = build_static_instance_outputs(variable_dir / variable.native.filename, job / "output", location=location)
+            css = job / "output" / result.css.filename
+            original = css.read_text(encoding="utf-8")
+            self.assertIn("font-stretch: 75%", original)
+
+            validate_job_artifacts(job, result, mode="instance", options={"location": location})
+
+            css.write_text(original.replace("font-stretch: 75%", "font-stretch: 100%"), encoding="utf-8")
             with self.assertRaises(BuildResultContractError):
                 validate_job_artifacts(job, result, mode="instance", options={"location": location})
 
