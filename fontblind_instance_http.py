@@ -9,11 +9,7 @@ import shutil
 from http import HTTPStatus
 from urllib.parse import urlsplit
 
-from fontblind_app import (
-    UPLOAD_READ_TIMEOUT_SECONDS,
-    Handler,
-    LabRequestError,
-)
+from fontblind_app import UPLOAD_READ_TIMEOUT_SECONDS, Handler, LabRequestError
 from fontblind_stream import COPY_CHUNK_BYTES, StreamInterruptedError, copy_exact
 from fontblind_surgical import FontBlindError
 from fontblind_web import WebBuildError
@@ -130,22 +126,10 @@ class InstanceHandler(Handler):
         if media_type != "application/json":
             self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid static export request."})
             return
-        length = self._body_length(INSTANCE_BODY_BYTES, "Choose one generated-axis location.")
-        if length is None:
-            return
 
-        try:
-            self.connection.settimeout(UPLOAD_READ_TIMEOUT_SECONDS)
-            buffer = io.BytesIO()
-            copy_exact(self.rfile, buffer, length, chunk_size=INSTANCE_BODY_BYTES)
-            request = json.loads(buffer.getvalue().decode("utf-8"))
-            if not isinstance(request, dict) or set(request) != {"location"}:
-                raise ValueError("invalid static export envelope")
-            location = _validated_public_location(parent.result.axes, request["location"])
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, StreamInterruptedError):
-            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid static export request."})
-            return
-
+        # Claim the sole heavy-build slot before reading an instance request.
+        # This mirrors the main build endpoints: a stalled local body cannot
+        # accumulate request threads while another compiler job is active.
         if not self.server.worker_gate.acquire(blocking=False):
             self._json(
                 HTTPStatus.TOO_MANY_REQUESTS,
@@ -153,6 +137,22 @@ class InstanceHandler(Handler):
             )
             return
         try:
+            length = self._body_length(INSTANCE_BODY_BYTES, "Choose one generated-axis location.")
+            if length is None:
+                return
+
+            try:
+                self.connection.settimeout(UPLOAD_READ_TIMEOUT_SECONDS)
+                buffer = io.BytesIO()
+                copy_exact(self.rfile, buffer, length, chunk_size=INSTANCE_BODY_BYTES)
+                request = json.loads(buffer.getvalue().decode("utf-8"))
+                if not isinstance(request, dict) or set(request) != {"location"}:
+                    raise ValueError("invalid static export envelope")
+                location = _validated_public_location(parent.result.axes, request["location"])
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError, StreamInterruptedError):
+                self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid static export request."})
+                return
+
             creator = getattr(self.server.jobs, "create_instance", None)
             if not callable(creator):
                 self._json(
