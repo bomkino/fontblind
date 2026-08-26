@@ -2,13 +2,14 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, improve/inspect-instance-proof-3.6]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Temporary exact-head trigger for the final Gate 3/4 semantic audit.
 concurrency:
   group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
