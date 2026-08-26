@@ -1,0 +1,25 @@
+name: Export exact source tree
+
+on:
+  push:
+    branches: [improve/static-instance-contracts-3.6]
+    paths: [.github/workflows/export-source.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Archive exact commit
+        run: git archive --format=zip --output=fontblind-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fontblind-source
+          path: fontblind-source.zip
+          if-no-files-found: error
+          retention-days: 1
