@@ -19,6 +19,7 @@ from fontblind_pipeline import _decode_woff2, _harfbuzz_shape, build_browser_out
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "tests" / "corpus" / "manifest.json"
 CORPUS_DIR = Path(os.environ.get("FONTBLIND_CORPUS_DIR", ROOT / "tests" / "corpus" / "cache"))
+RUN_FULL_CORPUS = os.environ.get("FONTBLIND_RUN_FULL_CORPUS") == "1"
 VARIATION_TABLES = frozenset({"avar", "cvar", "fvar", "gvar", "HVAR", "MVAR", "STAT", "VVAR"})
 SCRIPT_PROBES = {
     "Latin": "AVATAR office affinity ffi fl Á V̈ — 0123456789",
@@ -75,7 +76,10 @@ def _save_instance(source: Path, output: Path, location: dict[str, float]) -> No
         instance.close()
 
 
-@unittest.skipUnless(CORPUS_DIR.is_dir(), "pinned release corpus unavailable; run tools/fetch_corpus.py")
+@unittest.skipUnless(
+    CORPUS_DIR.is_dir() and RUN_FULL_CORPUS,
+    "full pinned corpus gate disabled; set FONTBLIND_RUN_FULL_CORPUS=1",
+)
 class RepresentativeCorpusTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

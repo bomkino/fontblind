@@ -129,7 +129,12 @@ grep -qi '^Content-Security-Policy:' "$SERVER_HEADERS"
 
 SMOKE_ROOT="$BUILD_ROOT/frozen-smoke"
 mkdir -p "$SMOKE_ROOT"
-"$PYTHON" "$APP_DIR/release_gauntlet.py" "$SERVER_URL" "$SMOKE_ROOT"
+if [[ -n "${FONTBLIND_CORPUS_DIR:-}" ]]; then
+  "$PYTHON" "$APP_DIR/tools/fetch_corpus.py" --output "$FONTBLIND_CORPUS_DIR" --verify-only
+  "$PYTHON" "$APP_DIR/release_gauntlet.py" "$SERVER_URL" "$SMOKE_ROOT" "$FONTBLIND_CORPUS_DIR"
+else
+  "$PYTHON" "$APP_DIR/release_gauntlet.py" "$SERVER_URL" "$SMOKE_ROOT"
+fi
 
 kill "$SERVER_PID"
 wait "$SERVER_PID" || true

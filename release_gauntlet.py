@@ -7,23 +7,27 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv if argv is None else argv)
-    if len(arguments) != 3:
+    if len(arguments) not in {3, 4}:
         return 64
+    import hashlib
     import http.client
     import json
     import pathlib
     import re
     import struct
-    import sys
     import zipfile
     from urllib.parse import urlsplit
 
     from fontTools.ttLib import TTFont
+
+    from fontblind_pipeline import _decode_woff2, _harfbuzz_shape
+    from fontblind_policy import assert_strict_output
     from tests.test_lab import write_fixture_font
 
 
     server = urlsplit(arguments[1])
     root = pathlib.Path(arguments[2])
+    corpus_root = pathlib.Path(arguments[3]) if len(arguments) == 4 else None
     host = server.hostname or "127.0.0.1"
     port = int(server.port or 80)
     secrets = ("FROZEN_SMOKE_REGULAR_7Q9K", "FROZEN_SMOKE_BOLD_4M2X")
@@ -304,6 +308,70 @@ def main(argv: list[str] | None = None) -> int:
     require(status == 404, "a frozen child survived deletion of its variable parent")
     status, _headers, _payload = request("GET", variable["native"]["url"])
     require(status == 404, "a deleted variable parent remained downloadable")
+
+
+    if corpus_root is not None:
+        manifest_path = pathlib.Path(__file__).resolve().parent / "tests" / "corpus" / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        probes = {
+            "Latin": "AVATAR office affinity ffi fl Á V̈ — 0123456789",
+            "Arabic": "السَّلَامُ عَلَيْكُمْ العربية",
+            "Devanagari": "नमस्ते दुनिया क्षत्रिय प्रज्ञा",
+            "Hebrew": "שָׁלוֹם עוֹלָם בְּרָכָה",
+            "Thai": "สวัสดีชาวโลก ภาษาไทย",
+        }
+        blind_checks = {
+            "source_identity_removed",
+            "embedding_flags_cleared",
+            "outline_flavor_retained",
+            "functional_clone_verified",
+            "harfbuzz_shaping_verified",
+            "woff2_roundtrip_verified",
+            "source_discarded",
+        }
+        for asset in manifest.get("assets", []):
+            require(isinstance(asset, dict), "release corpus manifest contains a malformed asset")
+            asset_id = asset.get("id")
+            filename = asset.get("filename")
+            script = asset.get("script")
+            expected_size = asset.get("size")
+            expected_sha256 = asset.get("sha256")
+            require(
+                isinstance(asset_id, str)
+                and isinstance(filename, str)
+                and isinstance(script, str)
+                and script in probes
+                and isinstance(expected_size, int)
+                and isinstance(expected_sha256, str),
+                "release corpus manifest contains an incomplete asset",
+            )
+            source = corpus_root / filename
+            require(source.is_file() and not source.is_symlink(), f"release corpus asset {asset_id} is unavailable")
+            source_bytes = source.read_bytes()
+            require(len(source_bytes) == expected_size, f"release corpus asset {asset_id} changed size")
+            require(hashlib.sha256(source_bytes).hexdigest() == expected_sha256, f"release corpus asset {asset_id} changed digest")
+
+            source_font = TTFont(str(source), lazy=False)
+            try:
+                source_variable = "fvar" in source_font
+            finally:
+                source_font.close()
+
+            corpus_result = post_font("/api/process", source_bytes)
+            exact_checks(corpus_result, blind_checks)
+            require(bool(corpus_result.get("variable")) is source_variable, f"release corpus asset {asset_id} changed font model")
+            corpus_paths = download(corpus_result, f"corpus-{asset_id}")
+            native = corpus_paths["native"]
+            decoded = root / f"corpus-{asset_id}-decoded{pathlib.Path(corpus_result['native']['filename']).suffix}"
+            assert_strict_output(native, source)
+            _decode_woff2(corpus_paths["web"], decoded)
+            assert_strict_output(decoded, source)
+            source_shape = _harfbuzz_shape(source, probes[script])
+            require(len(source_shape) > 1 and any(glyph_id != 0 for glyph_id, *_rest in source_shape), f"release corpus probe {asset_id} did not shape")
+            require(source_shape == _harfbuzz_shape(native, probes[script]), f"release corpus native shaping drifted for {asset_id}")
+            require(source_shape == _harfbuzz_shape(decoded, probes[script]), f"release corpus WOFF2 shaping drifted for {asset_id}")
+            delete_job(corpus_result)
+
     return 0
 
 
