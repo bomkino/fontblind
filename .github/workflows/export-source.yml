@@ -23,3 +23,5 @@ jobs:
           path: fontblind-source.zip
           if-no-files-found: error
           retention-days: 1
+
+# Temporary exact-tree export for this hardening cycle.
