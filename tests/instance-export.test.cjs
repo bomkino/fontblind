@@ -2,7 +2,24 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { formatLocation, validateStaticResult } = require("../web/instance-export.js");
+const {
+  createOperationLedger,
+  formatLocation,
+  installErrorFirewall,
+  localPath,
+  safeErrorMessage,
+  sameLocation,
+  validateStaticResult
+} = require("../web/instance-export.js");
+
+function output(token, kind, filename, mediaType) {
+  return {
+    kind,
+    filename,
+    media_type: mediaType,
+    url: `/download/${token}/${kind}`
+  };
+}
 
 function result() {
   const token = "a".repeat(32);
@@ -10,10 +27,10 @@ function result() {
     ok: true,
     job: token,
     location: { wght: 550 },
-    native: { url: `/download/${token}/native` },
-    web: { url: `/download/${token}/web` },
-    css: { url: `/download/${token}/css` },
-    bundle: { url: `/download/${token}/bundle` },
+    native: output(token, "native", "fontblind-instance.ttf", "font/ttf"),
+    web: output(token, "web", "fontblind-instance.woff2", "font/woff2"),
+    css: output(token, "css", "fontblind-instance.css", "text/css; charset=utf-8"),
+    bundle: output(token, "bundle", "fontblind-instance-package.zip", "application/zip"),
     checks: {
       source_identity_removed: true,
       embedding_flags_cleared: true,
@@ -32,26 +49,46 @@ test("formats generated coordinates without source labels", () => {
   assert.equal(
     formatLocation(
       [{ tag: "wght" }, { tag: "wdth" }],
-      { wght: 525, wdth: 87.5 }
+      { wght: 537.375, wdth: 93.625 }
     ),
-    "wght 525 · wdth 87.5"
+    "wght 537.375 · wdth 93.625"
   );
 });
 
-test("accepts a complete local static proof at the requested location", () => {
+test("accepts only the exact local static package at the requested location", () => {
   const value = validateStaticResult(result(), "http://127.0.0.1:7331", { wght: 550 });
   assert.equal(value.ok, true);
   assert.deepEqual(value.location, { wght: 550 });
 });
 
-test("rejects non-local downloads and residual axes", () => {
+test("rejects non-local, query-bearing, incoherent, and identity-bearing descriptors", () => {
   const external = result();
   external.web.url = "https://example.com/font.woff2";
-  assert.throws(() => validateStaticResult(external, "http://127.0.0.1:7331"), /non-local/);
+  assert.throws(() => validateStaticResult(external, "http://127.0.0.1:7331"), /non-local or incoherent/);
 
-  const variable = result();
-  variable.axes = [];
-  assert.throws(() => validateStaticResult(variable, "http://127.0.0.1:7331"), /remained variable/);
+  const query = result();
+  query.web.url += "?source=PrivateFamily";
+  assert.throws(() => validateStaticResult(query, "http://127.0.0.1:7331"), /non-local or incoherent/);
+
+  const wrongName = result();
+  wrongName.native.filename = "PrivateFamily-Regular.ttf";
+  assert.throws(() => validateStaticResult(wrongName), /incoherent native descriptor/);
+
+  const extra = result();
+  extra.source_filename = "PrivateFamily-Regular.ttf";
+  assert.throws(() => validateStaticResult(extra), /unexpected fields/);
+
+  const nestedExtra = result();
+  nestedExtra.web.source_path = "/Users/person/PrivateFamily.ttf";
+  assert.throws(() => validateStaticResult(nestedExtra), /unexpected fields/);
+
+  assert.throws(
+    () => localPath(
+      `/download/${"a".repeat(32)}/web#PrivateFamily`,
+      "http://127.0.0.1:7331"
+    ),
+    /non-local or incoherent/
+  );
 });
 
 test("rejects missing, failed, invented, and extra proof claims", () => {
@@ -75,7 +112,7 @@ test("rejects missing, failed, invented, and extra proof claims", () => {
 test("rejects absent, malformed, or mismatched server-confirmed locations", () => {
   const absent = result();
   delete absent.location;
-  assert.throws(() => validateStaticResult(absent), /no verified location/);
+  assert.throws(() => validateStaticResult(absent), /unexpected fields/);
 
   const boolean = result();
   boolean.location.wght = true;
@@ -88,5 +125,74 @@ test("rejects absent, malformed, or mismatched server-confirmed locations", () =
   assert.throws(
     () => validateStaticResult(result(), "http://127.0.0.1:7331", { wght: 551 }),
     /different generated-axis location/
+  );
+});
+
+test("operation ledger makes stale async completions unpublishable", () => {
+  const ledger = createOperationLedger();
+  const first = ledger.begin("parent-a");
+  assert.equal(ledger.current(first), true);
+
+  const second = ledger.begin("parent-a");
+  assert.equal(ledger.current(first), false);
+  assert.equal(ledger.current(second), true);
+
+  ledger.cancel("parent-a");
+  assert.equal(ledger.current(second), false);
+
+  const third = ledger.begin("parent-a");
+  ledger.complete(third);
+  assert.equal(ledger.current(third), false);
+});
+
+test("location comparison invalidates only real coordinate movement", () => {
+  const axes = [{ tag: "wght", min: 300, max: 700 }, { tag: "wdth", min: 75, max: 125 }];
+  assert.equal(
+    sameLocation(axes, { wght: 537.375, wdth: 93.625 }, { wght: 537.3750001, wdth: 93.625 }),
+    true
+  );
+  assert.equal(
+    sameLocation(axes, { wght: 537.375, wdth: 93.625 }, { wght: 538, wdth: 93.625 }),
+    false
+  );
+});
+
+test("error firewall preserves reviewed messages and destroys arbitrary server text", async () => {
+  const secret = "PrivateFamily-Regular.ttf at /Users/person/PrivateFamily-Regular.ttf";
+  const responses = [
+    new Response(JSON.stringify({ ok: false, error: secret }), {
+      status: 422,
+      headers: { "Content-Type": "application/json" }
+    }),
+    new Response(JSON.stringify({
+      ok: false,
+      error: "This generated position could not be frozen and verified. No output was kept."
+    }), {
+      status: 422,
+      headers: { "Content-Type": "application/json" }
+    })
+  ];
+  const fakeRoot = {
+    fetch: async () => responses.shift(),
+    location: {
+      href: "http://127.0.0.1:7331/",
+      origin: "http://127.0.0.1:7331"
+    },
+    Headers,
+    Response
+  };
+
+  installErrorFirewall(fakeRoot);
+  const rejected = await fakeRoot.fetch("/api/jobs/" + "a".repeat(32) + "/instance", { method: "POST" });
+  const rejectedData = await rejected.json();
+  assert.equal(rejectedData.error, safeErrorMessage(422, "instance"));
+  assert.equal(JSON.stringify(rejectedData).includes("PrivateFamily"), false);
+  assert.equal(JSON.stringify(rejectedData).includes("/Users/"), false);
+
+  const reviewed = await fakeRoot.fetch("/api/jobs/" + "a".repeat(32) + "/instance", { method: "POST" });
+  const reviewedData = await reviewed.json();
+  assert.equal(
+    reviewedData.error,
+    "This generated position could not be frozen and verified. No output was kept."
   );
 });
