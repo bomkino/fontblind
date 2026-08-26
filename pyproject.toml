@@ -27,6 +27,8 @@ py-modules = [
   "fontblind_entry",
   "fontblind_instance",
   "fontblind_instance_http",
+  "fontblind_instance_proof",
+  "fontblind_instance_verified",
   "fontblind_lab",
   "fontblind_mastermap",
   "fontblind_protocol",
