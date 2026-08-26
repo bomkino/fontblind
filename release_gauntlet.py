@@ -15,6 +15,7 @@ def main(argv: list[str] | None = None) -> int:
     import pathlib
     import re
     import struct
+    import time
     import zipfile
     from urllib.parse import urlsplit
 
@@ -116,8 +117,19 @@ def main(argv: list[str] | None = None) -> int:
                 and isinstance(filename, str),
                 f"{label} returned an invalid {kind} descriptor",
             )
-            status, headers, payload = request("GET", url)
-            require(status == 200, f"{label} {kind} download failed")
+            # The runtime deliberately permits only two simultaneous
+            # sealed snapshots. A fast local test client can receive EOF before
+            # the server thread reaches its semaphore release, so honour the
+            # authored 429 back-pressure for a bounded one-second window.
+            for _attempt in range(50):
+                status, headers, payload = request("GET", url)
+                if status != 429:
+                    break
+                time.sleep(0.02)
+            require(
+                status == 200,
+                f"{label} {kind} download failed: {status} {payload[:200]!r}",
+            )
             require(headers.get("Cache-Control") == "no-store, max-age=0", f"{label} {kind} can be cached")
             require(headers.get("Content-Disposition") == f'attachment; filename="{filename}"', f"{label} {kind} filename drifted")
             no_source_identity(payload, f"{label} {kind}")
