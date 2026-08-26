@@ -110,7 +110,7 @@ It may be worth a separate local sandbox after Family Merge works. It must never
 
 Borrow principles, not code, from Fontra:
 
-- master map and axis sliders;
+- anonymous master map and axis sliders;
 - live interpolation;
 - source/default/extreme overlays;
 - glyph-level failure heatmap;
@@ -133,7 +133,7 @@ The three tools live in one native macOS window but keep separate workbenches. B
 ## Roadmap from 3.4
 
 1. Harden all shipped lanes against larger real-world corpora, especially complex scripts and sparse multi-axis master sets.
-2. Add Codex repair bundles, a glyph-level failure heatmap, and optional static-instance export.
+2. Add axis-corner proof sheets, Codex repair bundles, a glyph-level failure heatmap, and optional static-instance export.
 3. Add designed italic review, kerning/feature probes, optical-size, and custom-axis authoring.
 4. Add optional Fontspector/Diffenator2 gauntlets without bloating the default local app.
 5. Evaluate model proposals only inside a clearly quarantined, licence-compatible local experiment.

@@ -19,6 +19,8 @@ from typing import Any, Sequence
 
 from fontTools.ttLib import TTLibError
 
+from fontblind_version import PROGRAM_VERSION
+
 import fontblind_surgical as surgical
 from fontblind_outline import (
     gauntlet_outline_font,
@@ -27,7 +29,6 @@ from fontblind_outline import (
     verify_outline_equivalence,
 )
 
-PROGRAM_VERSION = "3.1.0"
 FontBlindError = surgical.FontBlindError
 
 

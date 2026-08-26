@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import binascii
 from contextlib import ExitStack
 import json
 import mimetypes
@@ -24,11 +22,20 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Callable, Sequence
 from urllib.parse import urlsplit
 
 from fontblind_pipeline import PublicBuildResult
+from fontblind_protocol import (
+    FONT_SET_MEDIA_TYPE,
+    MAX_FONT_BYTES,
+    MAX_FONT_SET_BYTES,
+    FontSetError,
+    FontSetTooLargeError,
+    read_font_set_header,
+)
 from fontblind_policy import BrowserCompatibilityError, ZeroIdPolicyError
+from fontblind_stream import COPY_CHUNK_BYTES, StreamInterruptedError, copy_exact
 from fontblind_surgical import FontBlindError
 from fontblind_web import WebBuildError
 
@@ -37,12 +44,12 @@ APP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 WEB_ROOT = APP_ROOT / "web"
 if not WEB_ROOT.is_dir():
     WEB_ROOT = Path(sys.prefix) / "share" / "fontblind" / "web"
-MAX_UPLOAD_BYTES = 128 * 1024 * 1024
-MAX_VARIABLE_BODY_BYTES = 350 * 1024 * 1024
-MAX_VARIABLE_TOTAL_BYTES = 256 * 1024 * 1024
+MAX_UPLOAD_BYTES = MAX_FONT_BYTES
+MAX_VARIABLE_TOTAL_BYTES = MAX_FONT_SET_BYTES
 JOB_TTL_SECONDS = 2 * 60 * 60
 JOB_RE = re.compile(r"^[a-f0-9]{32}$")
 WORKER_TIMEOUT_SECONDS = 5 * 60
+UPLOAD_READ_TIMEOUT_SECONDS = 30.0
 SWEEP_INTERVAL_SECONDS = 60
 OWNERSHIP_MARKER = ".fontblind-owned.json"
 
@@ -122,11 +129,30 @@ class JobStore:
     def create(self, payload: bytes) -> tuple[str, Job]:
         return self._create("blind", [payload], {})
 
+    def create_stream(self, source: BinaryIO, length: int) -> tuple[str, Job]:
+        return self._create_stream("blind", source, [length], {})
+
     def create_oblique(self, payload: bytes, angle: float, output: str = "static") -> tuple[str, Job]:
         return self._create("oblique", [payload], {"angle": angle, "output": output})
 
+    def create_oblique_stream(
+        self,
+        source: BinaryIO,
+        length: int,
+        angle: float,
+        output: str = "static",
+    ) -> tuple[str, Job]:
+        return self._create_stream("oblique", source, [length], {"angle": angle, "output": output})
+
     def create_variable(self, payloads: list[bytes]) -> tuple[str, Job]:
         return self._create("variable", payloads, {})
+
+    def create_variable_stream(
+        self,
+        source: BinaryIO,
+        lengths: Sequence[int],
+    ) -> tuple[str, Job]:
+        return self._create_stream("variable", source, lengths, {})
 
     def _worker_command(
         self,
@@ -149,27 +175,68 @@ class JobStore:
             return [sys.executable, "--fontblind-worker", *arguments]
         return [sys.executable, str(APP_ROOT / "fontblind_worker.py"), *arguments]
 
+    def _validated_source_lengths(self, mode: str, lengths: Sequence[int]) -> tuple[int, ...]:
+        values = tuple(int(length) for length in lengths)
+        expected = range(2, 13) if mode == "variable" else range(1, 2)
+        if len(values) not in expected:
+            raise FontBlindError("Invalid local source count")
+        if any(length <= 0 or length > MAX_UPLOAD_BYTES for length in values):
+            raise FontBlindError("Invalid local source length")
+        if sum(values) > (MAX_VARIABLE_TOTAL_BYTES if mode == "variable" else MAX_UPLOAD_BYTES):
+            raise FontBlindError("Local source set is too large")
+        return values
+
     def _create(self, mode: str, payloads: list[bytes], options: dict[str, object]) -> tuple[str, Job]:
+        values = tuple(bytes(payload) for payload in payloads)
+        lengths = self._validated_source_lengths(mode, [len(payload) for payload in values])
+
+        def populate(streams: list[BinaryIO]) -> None:
+            for target, payload, length in zip(streams, values, lengths):
+                written = target.write(payload)
+                if written != length:
+                    raise OSError("Could not write the local source to its anonymous descriptor")
+
+        return self._create_job(mode, len(values), options, populate)
+
+    def _create_stream(
+        self,
+        mode: str,
+        source: BinaryIO,
+        lengths: Sequence[int],
+        options: dict[str, object],
+    ) -> tuple[str, Job]:
+        values = self._validated_source_lengths(mode, lengths)
+
+        def populate(streams: list[BinaryIO]) -> None:
+            for target, length in zip(streams, values):
+                copy_exact(source, target, length)
+
+        return self._create_job(mode, len(values), options, populate)
+
+    def _create_job(
+        self,
+        mode: str,
+        source_count: int,
+        options: dict[str, object],
+        populate_sources: Callable[[list[BinaryIO]], None],
+    ) -> tuple[str, Job]:
         if self._closed.is_set():
             raise FontBlindError("FontBlind is shutting down")
-        if not payloads:
-            raise FontBlindError("No font payloads were provided")
-        self.expire()
         token = uuid.uuid4().hex
         job_dir = self.root / token
         result_path = job_dir / ".result.json"
         try:
             job_dir.mkdir(mode=0o700)
-            # POSIX TemporaryFile has no directory entry. Workers inherit only
-            # anonymous descriptors plus a parent-liveness pipe; source paths
-            # never exist, including for multi-master Lab jobs.
+            # POSIX TemporaryFile has no directory entry. Request bodies are
+            # copied into these descriptors in bounded chunks, then workers
+            # inherit only descriptors plus a parent-liveness pipe.
             with ExitStack() as stack:
                 source_streams = [
                     stack.enter_context(tempfile.TemporaryFile(prefix=".fontblind-source-", dir=job_dir))
-                    for _payload in payloads
+                    for _ in range(source_count)
                 ]
-                for source_stream, payload in zip(source_streams, payloads):
-                    source_stream.write(payload)
+                populate_sources(source_streams)
+                for source_stream in source_streams:
                     source_stream.flush()
                     source_stream.seek(0)
                 source_fds = [source_stream.fileno() for source_stream in source_streams]
@@ -249,7 +316,9 @@ class JobStore:
             color=result.color,
             checks=checks,
             axes=result.axes,
+            masters=result.masters,
         )
+        result.require_verified()
         job = Job(path=job_dir, result=result, created=time.monotonic())
         with self._lock:
             self._jobs[token] = job
@@ -312,6 +381,7 @@ class FontBlindServer(ThreadingHTTPServer):
             super().__init__(address, handler)
             self.jobs = JobStore()
             self.session_secret = secrets.token_urlsafe(32)
+            self.worker_gate = threading.BoundedSemaphore(value=1)
         except Exception:
             super().server_close()
             raise
@@ -331,17 +401,32 @@ class Handler(BaseHTTPRequestHandler):
         # Request paths can contain opaque job tokens. Keep runtime silent.
         return
 
-    def _headers(self, status: int, media_type: str, length: int | None = None) -> None:
+    def _headers(
+        self,
+        status: int,
+        media_type: str,
+        length: int | None = None,
+        disposition: str | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", media_type)
         if length is not None:
             self.send_header("Content-Length", str(length))
+        if disposition is not None:
+            self.send_header("Content-Disposition", disposition)
         self.send_header("Cache-Control", "no-store, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Permitted-Cross-Domain-Policies", "none")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Origin-Agent-Cluster", "?1")
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), display-capture=(), geolocation=(), microphone=(), payment=(), usb=()",
+        )
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self' blob:; "
@@ -376,23 +461,47 @@ class Handler(BaseHTTPRequestHandler):
         self._headers(HTTPStatus.OK, kind, len(payload))
         self.wfile.write(payload)
 
-    def _read_body(self, maximum: int, empty_error: str) -> bytes | None:
-        raw_length = self.headers.get("Content-Length")
-        try:
-            length = int(raw_length or "0")
-        except ValueError:
-            length = 0
+    def _body_length(self, maximum: int, empty_error: str) -> int | None:
+        raw_value = self.headers.get("Content-Length")
+        if raw_value is None:
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": empty_error})
+            return None
+        value = raw_value.strip()
+        if not value or not value.isascii() or not value.isdecimal():
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local upload framing."})
+            return None
+        if len(value) > 20:
+            self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Local input is too large."})
+            return None
+        length = int(value)
         if length <= 0:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": empty_error})
             return None
         if length > maximum:
             self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Local input is too large."})
             return None
-        payload = self.rfile.read(length)
-        if len(payload) != length:
-            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "The local upload was interrupted."})
-            return None
-        return payload
+        return length
+
+    def _download_file(self, target: Path, media_type: str, filename: str) -> None:
+        try:
+            stream = target.open("rb")
+            length = os.fstat(stream.fileno()).st_size
+        except OSError:
+            self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Output unavailable."})
+            return
+        with stream:
+            self._headers(
+                HTTPStatus.OK,
+                media_type,
+                length,
+                f'attachment; filename="{filename}"',
+            )
+            try:
+                shutil.copyfileobj(stream, self.wfile, length=COPY_CHUNK_BYTES)
+            except (BrokenPipeError, ConnectionResetError):
+                # The browser cancelled a local download. The stored output
+                # remains available until explicit reset or normal expiry.
+                return
 
     def _public_result(self, token: str, job: Job) -> None:
         public = job.result.to_public_dict()
@@ -410,7 +519,9 @@ class Handler(BaseHTTPRequestHandler):
             "/index.html": (WEB_ROOT / "index.html", "text/html; charset=utf-8"),
             "/styles.css": (WEB_ROOT / "styles.css", "text/css; charset=utf-8"),
             "/app.js": (WEB_ROOT / "app.js", "text/javascript; charset=utf-8"),
+            "/lab-proof.js": (WEB_ROOT / "lab-proof.js", "text/javascript; charset=utf-8"),
             "/favicon.svg": (WEB_ROOT / "favicon.svg", "image/svg+xml"),
+            "/lab-map.css": (WEB_ROOT / "lab-map.css", "text/css; charset=utf-8"),
         }
         if path in static:
             self._static(*static[path])
@@ -429,19 +540,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             item = getattr(job.result, kind)
             target = job.path / "output" / item.filename
-            try:
-                payload = target.read_bytes()
-            except OSError:
-                self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Output unavailable."})
-                return
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", item.media_type)
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Content-Disposition", f'attachment; filename="{item.filename}"')
-            self.send_header("Cache-Control", "no-store, max-age=0")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(payload)
+            self._download_file(target, item.media_type, item.filename)
             return
 
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found."})
@@ -458,84 +557,88 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Invalid local session."})
             return
 
+        if not self.server.worker_gate.acquire(blocking=False):
+            self._json(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                {"ok": False, "error": "Another local build is already running. Finish or reset it before starting another."},
+            )
+            return
         try:
-            media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
-            if path in {"/api/process", "/api/lab/oblique"}:
-                if media_type != "application/octet-stream":
-                    self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local upload."})
-                    return
-                payload = self._read_body(MAX_UPLOAD_BYTES, "Choose a TTF or OTF first.")
-                if payload is None:
-                    return
-                if path == "/api/process":
-                    token, job = self.server.jobs.create(payload)
-                else:
-                    try:
-                        angle = float(self.headers.get("X-FontBlind-Angle", "12"))
-                    except ValueError:
-                        angle = 0
-                    if not 4 <= angle <= 20:
-                        self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Oblique angle must be between 4 and 20 degrees."})
+            try:
+                self.connection.settimeout(UPLOAD_READ_TIMEOUT_SECONDS)
+                media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
+                if path in {"/api/process", "/api/lab/oblique"}:
+                    if media_type != "application/octet-stream":
+                        self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local upload."})
                         return
-                    output = self.headers.get("X-FontBlind-Output", "static").strip().lower()
-                    if output not in {"static", "slnt"}:
-                        self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Choose a valid Oblique output."})
-                        return
-                    token, job = self.server.jobs.create_oblique(payload, angle, output)
-            else:
-                if media_type != "application/json":
-                    self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local Lab request."})
-                    return
-                encoded = self._read_body(MAX_VARIABLE_BODY_BYTES, "Choose between two and twelve compatible font masters.")
-                if encoded is None:
-                    return
-                try:
-                    request = json.loads(encoded)
-                    fonts = request["fonts"]
-                except (UnicodeDecodeError, json.JSONDecodeError, TypeError, KeyError):
-                    self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local Lab request."})
-                    return
-                if not isinstance(fonts, list) or not 2 <= len(fonts) <= 12 or not all(isinstance(item, str) for item in fonts):
-                    self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Choose between two and twelve compatible font masters."})
-                    return
-                try:
-                    payloads = [base64.b64decode(item, validate=True) for item in fonts]
-                except (binascii.Error, ValueError, TypeError):
-                    self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local Lab request."})
-                    return
-                if any(not payload or len(payload) > MAX_UPLOAD_BYTES for payload in payloads):
-                    self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "A font exceeds the 128 MB local limit."})
-                    return
-                if sum(map(len, payloads)) > MAX_VARIABLE_TOTAL_BYTES:
-                    self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "The selected masters exceed the 256 MB local limit."})
-                    return
-                token, job = self.server.jobs.create_variable(payloads)
-        except BrowserCompatibilityError:
-            self._json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"ok": False, "error": "This font is missing structure required by modern browsers. No output was kept."},
-            )
-            return
-        except ZeroIdPolicyError:
-            self._json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"ok": False, "error": "This font contains data FontBlind cannot yet prove zero-ID. No output was kept."},
-            )
-            return
-        except LabRequestError as exc:
-            self._json(HTTPStatus.UNPROCESSABLE_ENTITY, {"ok": False, "error": f"{exc} No output was kept."})
-            return
-        except (FontBlindError, WebBuildError, ValueError, OSError):
-            self._json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"ok": False, "error": "This font could not satisfy the zero-ID fidelity checks. No output was kept."},
-            )
-            return
-        except Exception:
-            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "Processing failed safely. No output was kept."})
-            return
 
-        self._public_result(token, job)
+                    angle = 12.0
+                    output = "static"
+                    if path == "/api/lab/oblique":
+                        try:
+                            angle = float(self.headers.get("X-FontBlind-Angle", "12"))
+                        except ValueError:
+                            angle = 0
+                        if not 4 <= angle <= 20:
+                            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Oblique angle must be between 4 and 20 degrees."})
+                            return
+                        output = self.headers.get("X-FontBlind-Output", "static").strip().lower()
+                        if output not in {"static", "slnt"}:
+                            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Choose a valid Oblique output."})
+                            return
+
+                    length = self._body_length(MAX_UPLOAD_BYTES, "Choose a TTF or OTF first.")
+                    if length is None:
+                        return
+                    try:
+                        if path == "/api/process":
+                            token, job = self.server.jobs.create_stream(self.rfile, length)
+                        else:
+                            token, job = self.server.jobs.create_oblique_stream(self.rfile, length, angle, output)
+                    except StreamInterruptedError:
+                        self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "The local upload was interrupted."})
+                        return
+                else:
+                    if media_type != FONT_SET_MEDIA_TYPE:
+                        self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"ok": False, "error": "Invalid local Lab request."})
+                        return
+                    try:
+                        lengths = read_font_set_header(self.rfile, self.headers.get("Content-Length"))
+                        token, job = self.server.jobs.create_variable_stream(self.rfile, lengths)
+                    except FontSetTooLargeError as exc:
+                        self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": str(exc)})
+                        return
+                    except (FontSetError, StreamInterruptedError):
+                        self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Invalid local Lab request."})
+                        return
+            except BrowserCompatibilityError:
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"ok": False, "error": "This font is missing structure required by modern browsers. No output was kept."},
+                )
+                return
+            except ZeroIdPolicyError:
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"ok": False, "error": "This font contains data FontBlind cannot yet prove zero-ID. No output was kept."},
+                )
+                return
+            except LabRequestError as exc:
+                self._json(HTTPStatus.UNPROCESSABLE_ENTITY, {"ok": False, "error": f"{exc} No output was kept."})
+                return
+            except (FontBlindError, WebBuildError, ValueError, OSError):
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"ok": False, "error": "This font could not satisfy the zero-ID fidelity checks. No output was kept."},
+                )
+                return
+            except Exception:
+                self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "Processing failed safely. No output was kept."})
+                return
+
+            self._public_result(token, job)
+        finally:
+            self.server.worker_gate.release()
 
     def do_DELETE(self) -> None:  # noqa: N802
         if not self._host_ok():
