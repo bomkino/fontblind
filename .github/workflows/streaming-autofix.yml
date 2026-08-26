@@ -39,14 +39,17 @@ jobs:
             exit 1
           fi
           python -m unittest discover -s tests -v
-      - name: Build and inspect native macOS package
+      - name: Build and exercise native macOS package
         if: ${{ hashFiles('tools/apply_streaming_uploads.py') != '' }}
         run: |
           ./build-fontblind-app.command --no-install
           test -s output/macos/FontBlind.zip
           test -s output/macos/FontBlind.zip.sha256
           unzip -tq output/macos/FontBlind.zip
-          unzip -l output/macos/FontBlind.zip | grep -q 'fontblind_stream'
+          BUNDLE_ROOT="$(mktemp -d)"
+          ditto -x -k output/macos/FontBlind.zip "$BUNDLE_ROOT"
+          codesign --verify --deep --strict --verbose=2 "$BUNDLE_ROOT/FontBlind.app"
+          "$BUNDLE_ROOT/FontBlind.app/Contents/Resources/server/FontBlindServer" --help >/dev/null
       - name: Commit verified streaming path
         if: ${{ hashFiles('tools/apply_streaming_uploads.py') != '' }}
         run: |
