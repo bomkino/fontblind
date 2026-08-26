@@ -75,13 +75,15 @@ def _read_exact(stream: BinaryIO, size: int) -> bytes:
         block = stream.read(remaining)
         if not block:
             raise FontSetError("The local Lab upload was interrupted.")
+        if len(block) > remaining:
+            raise FontSetError("The local Lab upload violated bounded framing.")
         chunks.append(block)
         remaining -= len(block)
     return b"".join(chunks)
 
 
-def read_font_set(stream: BinaryIO, raw_content_length: str | None) -> list[bytes]:
-    """Read one length-prefixed donor set without base64 or JSON duplication."""
+def read_font_set_header(stream: BinaryIO, raw_content_length: str | None) -> tuple[int, ...]:
+    """Validate the compact envelope and leave the stream at the first donor byte."""
     declared = _content_length(raw_content_length)
     minimum = len(FONT_SET_MAGIC) + _COUNT.size + (MIN_FONT_COUNT * _LENGTH.size)
     if declared < minimum:
@@ -99,5 +101,10 @@ def read_font_set(stream: BinaryIO, raw_content_length: str | None) -> list[byte
     )
     if envelope_size(lengths) != declared:
         raise FontSetError("The local Lab request has inconsistent framing.")
+    return lengths
 
+
+def read_font_set(stream: BinaryIO, raw_content_length: str | None) -> list[bytes]:
+    """Read a complete donor set for tests and non-streaming callers."""
+    lengths = read_font_set_header(stream, raw_content_length)
     return [_read_exact(stream, length) for length in lengths]
