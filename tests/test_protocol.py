@@ -58,10 +58,9 @@ class FontSetProtocolTests(unittest.TestCase):
 
 
 class PublicResultTests(unittest.TestCase):
-    def test_internal_result_rejects_truthy_non_boolean_proof(self) -> None:
-        file = OutputFile("native", "font.ttf", "font/ttf")
-        result = PublicBuildResult(
-            native=file,
+    def _verified_result(self) -> PublicBuildResult:
+        return PublicBuildResult(
+            native=OutputFile("native", "font.ttf", "font/ttf"),
             web=OutputFile("web", "font.woff2", "font/woff2"),
             css=OutputFile("css", "font.css", "text/css"),
             bundle=OutputFile("bundle", "font.zip", "application/zip"),
@@ -70,23 +69,24 @@ class PublicResultTests(unittest.TestCase):
             color=False,
             checks={"verified": True},
         )
-        value = result.to_internal_dict()
+
+    def test_internal_result_rejects_truthy_non_boolean_proof(self) -> None:
+        value = self._verified_result().to_internal_dict()
         value["checks"]["verified"] = "false"
         with self.assertRaises(ValueError):
             PublicBuildResult.from_internal_dict(value)
 
+    def test_internal_result_rejects_truthy_non_boolean_descriptors(self) -> None:
+        for field in ("variable", "color"):
+            with self.subTest(field=field):
+                value = self._verified_result().to_internal_dict()
+                value[field] = "false"
+                with self.assertRaises(ValueError):
+                    PublicBuildResult.from_internal_dict(value)
+
     def test_result_requires_every_proof_to_pass(self) -> None:
-        file = OutputFile("native", "font.ttf", "font/ttf")
-        result = PublicBuildResult(
-            native=file,
-            web=OutputFile("web", "font.woff2", "font/woff2"),
-            css=OutputFile("css", "font.css", "text/css"),
-            bundle=OutputFile("bundle", "font.zip", "application/zip"),
-            flavor="TrueType",
-            variable=False,
-            color=False,
-            checks={"verified": False},
-        )
+        result = self._verified_result()
+        object.__setattr__(result, "checks", {"verified": False})
         with self.assertRaises(ValueError):
             result.require_verified()
 
