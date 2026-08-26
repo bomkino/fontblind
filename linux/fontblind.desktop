@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=FontBlind
+GenericName=Font utility
+Comment=Local-only zero-ID font conversion and variable-font lab
+Exec=FontBlind
+Icon=fontblind
+Terminal=false
+Categories=Graphics;Utility;
+Keywords=font;typography;woff2;variable;
+StartupNotify=true
