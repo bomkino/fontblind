@@ -22,6 +22,7 @@ from fontblind_contract import (
 )
 from fontblind_lab import build_variable_outputs
 from fontblind_pipeline import OutputFile, PublicBuildResult
+from fontblind_runtime import ContractJobStore
 from tests.test_lab import write_fixture_font
 
 
@@ -260,6 +261,43 @@ class RetainedArtifactTests(unittest.TestCase):
             self.assertFalse(verify_artifact_seal(job, self.result.css, seals["css"]))
         finally:
             temporary.cleanup()
+
+
+class SealedSnapshotTests(unittest.TestCase):
+    def test_snapshot_bytes_are_independent_of_later_path_changes(self) -> None:
+        store = ContractJobStore()
+        store_root = store.root
+        snapshot = None
+        try:
+            with tempfile.TemporaryDirectory(prefix="fontblind-snapshot-source-") as temp_text:
+                root = Path(temp_text)
+                regular = root / "regular.ttf"
+                bold = root / "bold.ttf"
+                write_fixture_font(regular, weight=400, family="Snapshot Regular")
+                write_fixture_font(bold, weight=700, family="Snapshot Bold")
+                token, job = store.create_variable([regular.read_bytes(), bold.read_bytes()])
+
+            retained = job.path / "output" / job.result.css.filename
+            expected = retained.read_bytes()
+            opened = store.open_artifact(token, "css")
+            self.assertIsNotNone(opened)
+            assert opened is not None
+            _job, _item, snapshot, size = opened
+            self.assertEqual(size, len(expected))
+
+            retained.write_bytes(b"changed after the verified snapshot")
+            self.assertEqual(snapshot.read(), expected)
+            snapshot.close()
+            snapshot = None
+
+            self.assertIsNone(store.open_artifact(token, "css"))
+            self.assertIsNone(store.get(token))
+            self.assertFalse(job.path.exists())
+        finally:
+            if snapshot is not None:
+                snapshot.close()
+            store.close()
+            self.assertFalse(store_root.exists())
 
 
 if __name__ == "__main__":
