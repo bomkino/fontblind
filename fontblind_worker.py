@@ -10,7 +10,7 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 
-from fontblind_contract import validate_build_result
+from fontblind_contract import expected_lane_for, validate_build_result
 from fontblind_mastermap import anonymous_slant_masters, anonymous_variable_masters
 from fontblind_pipeline import build_browser_outputs
 from fontblind_policy import BrowserCompatibilityError, ZeroIdPolicyError
@@ -68,6 +68,11 @@ def main(argv: list[str]) -> int:
         return 64
     if mode not in {"blind", "oblique", "variable", "instance"}:
         return 64
+    try:
+        expected_lane = expected_lane_for(mode, options)
+    except ValueError:
+        return 64
+
     done = threading.Event()
     threading.Thread(target=_watch_parent, args=(parent_fd, done), name="fontblind-parent-watch", daemon=True).start()
     temporary = result_path.with_suffix(".tmp")
@@ -118,7 +123,7 @@ def main(argv: list[str]) -> int:
             return 5
 
         result.require_verified()
-        validate_build_result(result)
+        validate_build_result(result, expected_lane=expected_lane)
         temporary.write_text(
             json.dumps(result.to_internal_dict(), separators=(",", ":"), ensure_ascii=False),
             encoding="utf-8",
