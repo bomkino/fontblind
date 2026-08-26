@@ -49,7 +49,28 @@ jobs:
           BUNDLE_ROOT="$(mktemp -d)"
           ditto -x -k output/macos/FontBlind.zip "$BUNDLE_ROOT"
           codesign --verify --deep --strict --verbose=2 "$BUNDLE_ROOT/FontBlind.app"
-          "$BUNDLE_ROOT/FontBlind.app/Contents/Resources/server/FontBlindServer" --help >/dev/null
+          SERVER="$BUNDLE_ROOT/FontBlind.app/Contents/Resources/server/FontBlindServer"
+          SERVER_LOG="$BUNDLE_ROOT/server.log"
+          "$SERVER" >"$SERVER_LOG" 2>&1 &
+          SERVER_PID=$!
+          cleanup_server() {
+            kill -TERM "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup_server EXIT
+          for _ in {1..100}; do
+            if grep -Eq '^FONTBLIND_READY 127\.0\.0\.1 [0-9]+$' "$SERVER_LOG"; then
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$SERVER_LOG" >&2
+              exit 1
+            fi
+            sleep 0.1
+          done
+          grep -Eq '^FONTBLIND_READY 127\.0\.0\.1 [0-9]+$' "$SERVER_LOG"
+          cleanup_server
+          trap - EXIT
       - name: Commit verified streaming path
         if: ${{ hashFiles('tools/apply_streaming_uploads.py') != '' }}
         run: |
