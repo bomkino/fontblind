@@ -1,0 +1,50 @@
+name: Apply version consistency
+
+on:
+  push:
+    branches: [improve/lab-hardening-3.5]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: improve/lab-hardening-3.5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Apply version fix
+        if: ${{ hashFiles('tools/apply_version_consistency.py') != '' }}
+        run: python tools/apply_version_consistency.py
+      - name: Install package
+        if: ${{ hashFiles('tools/apply_version_consistency.py') != '' }}
+        run: python -m pip install .
+      - name: Prove version and full suite
+        if: ${{ hashFiles('tools/apply_version_consistency.py') != '' }}
+        run: |
+          python -m pip check
+          python -m compileall -q .
+          python -m unittest discover -s tests -v
+          node --check web/app.js
+          node --check web/lab-proof.js
+          node --test tests/lab-proof.test.cjs
+          test "$(python -c 'import fontblind; print(fontblind.PROGRAM_VERSION)')" = "3.4.0"
+          test "$(python -c 'from importlib.metadata import version; print(version("fontblind-local"))')" = "3.4.0"
+      - name: Commit verified version fix
+        if: ${{ hashFiles('tools/apply_version_consistency.py') != '' }}
+        run: |
+          rm -rf build
+          git restore .github/workflows/version-autofix.yml
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Use one authoritative FontBlind version"
+          git push origin HEAD:improve/lab-hardening-3.5
