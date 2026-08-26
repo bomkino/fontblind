@@ -53,6 +53,7 @@ from fontTools.varLib.instancer import (
     instantiateVariableFont,
 )
 
+from fontblind_version import PROGRAM_VERSION
 from fontblind_surgical import (
     FIXED_SFNT_TIME,
     GENERIC_FAMILY,
@@ -68,7 +69,7 @@ from fontblind_surgical import (
     audit_font,
 )
 
-OUTLINE_PROGRAM_VERSION = "3.1.0"
+OUTLINE_PROGRAM_VERSION = PROGRAM_VERSION
 
 # A fresh outline build intentionally contains only these core tables.
 _BASE_TABLES = frozenset({"head", "hhea", "maxp", "OS/2", "hmtx", "cmap", "name", "post"})

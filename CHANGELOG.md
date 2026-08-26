@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Centralize the release version so every CLI, engine, package, and report identifies the same build.
 - Replace Variable Lab's base64/JSON donor upload with a bounded binary font-set envelope.
 - Stream every browser upload into anonymous descriptors in 1 MB chunks instead of buffering whole fonts in browser and server memory.
 - Bound stalled or pathological upload framing, and stream completed downloads without whole-file server buffers.

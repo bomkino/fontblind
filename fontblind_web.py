@@ -24,7 +24,7 @@ from typing import Any, Iterable, Sequence
 from fontTools import subset
 from fontTools.ttLib import TTFont, TTLibError
 
-PROGRAM_VERSION = "3.4.0"
+from fontblind_version import PROGRAM_VERSION
 
 
 class WebBuildError(RuntimeError):

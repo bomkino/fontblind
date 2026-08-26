@@ -29,8 +29,9 @@ from typing import Any, Iterable, Sequence
 from fontTools.cffLib import cffStandardStrings
 from fontTools.ttLib import TTFont, TTLibError, newTable
 
+from fontblind_version import PROGRAM_VERSION
+
 PROGRAM = "fontblind"
-PROGRAM_VERSION = "3.1.0"
 GENERIC_FAMILY = "Untitled"
 GENERIC_STYLE = "Regular"
 GENERIC_FULL = f"{GENERIC_FAMILY} {GENERIC_STYLE}"
