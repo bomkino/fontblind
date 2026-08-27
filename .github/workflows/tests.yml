@@ -169,7 +169,8 @@ jobs:
         with:
           ref: ${{ env.VERIFIED_SHA }}
       - name: Verify exact checkout
-        run: test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
+        shell: bash
+        run: test "$(cat .git/HEAD)" = "$VERIFIED_SHA"
       - name: Install current Arch build and desktop tools
         shell: bash
         run: |
