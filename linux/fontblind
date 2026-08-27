@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+if [ "$#" -ne 0 ]; then
+  printf '%s\n' 'Usage: fontblind' >&2
+  exit 64
+fi
 if [ "$(id -u)" -eq 0 ]; then
   printf '%s\n' 'FontBlind refuses to run as root. Launch it from your normal KDE session.' >&2
   exit 77
@@ -8,4 +12,4 @@ fi
 
 umask 077
 export PYTHONDONTWRITEBYTECODE=1
-exec /opt/fontblind/FontBlindServer/FontBlindServer --fontblind-browser-app "$@"
+exec /opt/fontblind/FontBlindServer/FontBlindServer --fontblind-browser-app
