@@ -72,7 +72,13 @@ def main(argv: list[str] | None = None) -> int:
     require(session_headers.get("Cache-Control") == "no-store, max-age=0", "session response can be cached")
     session_value = json.loads(session_payload)
     session = session_value.get("session")
-    require(session_value.get("ok") is True and isinstance(session, str), "invalid frozen session contract")
+    require(
+        set(session_value) == {"ok", "session", "can_quit"}
+        and session_value.get("ok") is True
+        and session_value.get("can_quit") is False
+        and isinstance(session, str),
+        "invalid frozen session contract",
+    )
     require(len(session) >= 32 and re.search(r"\s", session) is None, "weak frozen session contract")
 
     regular = root / "secret-regular.ttf"

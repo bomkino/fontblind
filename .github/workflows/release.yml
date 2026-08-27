@@ -1,0 +1,234 @@
+name: Prepare FontBlind release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact full commit SHA on current main
+        required: true
+        type: string
+      verification_run_id:
+        description: Successful Tests workflow run for target_sha
+        required: true
+        type: string
+      tag:
+        description: New tag matching v<source version>
+        required: true
+        type: string
+      publish:
+        description: Create a public prerelease after validation
+        required: true
+        default: false
+        type: boolean
+      confirmation:
+        description: When publishing, repeat the exact requested tag
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: fontblind-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate exact artifacts and prepare release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: ${{ inputs.target_sha }}
+      RUN_ID: ${{ inputs.verification_run_id }}
+      TAG: ${{ inputs.tag }}
+      PUBLISH: ${{ inputs.publish }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          if [[ "$PUBLISH" == "true" ]]; then
+            test "$CONFIRMATION" = "$TAG"
+          else
+            test -z "$CONFIRMATION" || test "$CONFIRMATION" = "$TAG"
+          fi
+
+      - name: Check out exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 0
+
+      - name: Verify target is current main and versions agree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "$TARGET_SHA"
+
+          VERSION="$(python -c 'from fontblind_version import PROGRAM_VERSION; print(PROGRAM_VERSION)')"
+          test "$TAG" = "v$VERSION"
+          test -s "docs/releases/$VERSION.md"
+          grep -Fqx "## $VERSION — Unreleased" <(grep '^## ' CHANGELOG.md | head -n 1)
+          python - <<'PY'
+          from importlib.util import module_from_spec, spec_from_file_location
+          from pathlib import Path
+          import plistlib
+          import re
+
+          root = Path.cwd()
+          spec = spec_from_file_location("fontblind_version", root / "fontblind_version.py")
+          module = module_from_spec(spec)
+          assert spec and spec.loader
+          spec.loader.exec_module(module)
+          version = module.PROGRAM_VERSION
+          project = (root / "pyproject.toml").read_text(encoding="utf-8")
+          packaged = re.search(r'^version = "([^"]+)"$', project, flags=re.MULTILINE)
+          assert packaged and packaged.group(1) == version
+          with (root / "macos" / "Info.plist").open("rb") as handle:
+              plist = plistlib.load(handle)
+          assert plist["CFBundleShortVersionString"] == version
+          assert plist["CFBundleVersion"] == "".join(version.split("."))
+          PY
+          printf 'VERSION=%s\n' "$VERSION" >> "$GITHUB_ENV"
+
+      - name: Refuse existing tag or release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Refusing to reuse existing tag: $TAG" >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing release: $TAG" >&2
+            exit 1
+          fi
+
+      - name: Verify exact successful workflow run
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/run.json"
+          jq -e --arg sha "$TARGET_SHA" '
+            .status == "completed" and
+            .conclusion == "success" and
+            .head_sha == $sha and
+            .path == ".github/workflows/tests.yml"
+          ' "$RUNNER_TEMP/run.json" >/dev/null
+
+      - name: Download exact-SHA artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts.json"
+          mkdir -p "$RUNNER_TEMP/downloads" "$RUNNER_TEMP/candidate/macos" "$RUNNER_TEMP/candidate/linux"
+
+          download_artifact() {
+            local name="$1"
+            local destination="$2"
+            local id
+            id="$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name and .expired == false) | .id' "$RUNNER_TEMP/artifacts.json")"
+            test -n "$id"
+            test "$(printf '%s\n' "$id" | wc -l | tr -d ' ')" = "1"
+            curl --fail --location --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" \
+              --output "$RUNNER_TEMP/downloads/$name.zip"
+            unzip -q "$RUNNER_TEMP/downloads/$name.zip" -d "$destination"
+          }
+
+          download_artifact "fontblind-macos-$TARGET_SHA" "$RUNNER_TEMP/candidate/macos"
+          download_artifact "fontblind-garuda-kde-x86_64-$TARGET_SHA" "$RUNNER_TEMP/candidate/linux"
+
+      - name: Verify and assemble release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="$RUNNER_TEMP/release-bundle"
+          mkdir -p "$BUNDLE" "$RUNNER_TEMP/macos-expanded"
+
+          MAC_ZIP="$(find "$RUNNER_TEMP/candidate/macos" -type f -name 'FontBlind.zip' -print -quit)"
+          MAC_SUM="$(find "$RUNNER_TEMP/candidate/macos" -type f -name 'FontBlind.zip.sha256' -print -quit)"
+          MAC_SOURCE="$(find "$RUNNER_TEMP/candidate/macos" -type f -name 'SOURCE_SHA' -print -quit)"
+          test -s "$MAC_ZIP"
+          test -s "$MAC_SUM"
+          test "$(cat "$MAC_SOURCE")" = "$TARGET_SHA"
+          (cd "$(dirname "$MAC_ZIP")" && shasum -a 256 -c "$(basename "$MAC_SUM")")
+          unzip -tq "$MAC_ZIP"
+          unzip -q "$MAC_ZIP" -d "$RUNNER_TEMP/macos-expanded"
+          MAC_APP="$(find "$RUNNER_TEMP/macos-expanded" -maxdepth 2 -type d -name 'FontBlind.app' -print -quit)"
+          test -n "$MAC_APP"
+          python - "$MAC_APP/Contents/Info.plist" "$VERSION" <<'PY'
+          import plistlib
+          import sys
+          with open(sys.argv[1], "rb") as handle:
+              plist = plistlib.load(handle)
+          assert plist["CFBundleShortVersionString"] == sys.argv[2]
+          PY
+          BINARY_INFO="$(file "$MAC_APP/Contents/MacOS/FontBlind")"
+          if [[ "$BINARY_INFO" == *arm64* && "$BINARY_INFO" == *x86_64* ]]; then
+            MAC_ARCH=universal
+          elif [[ "$BINARY_INFO" == *arm64* || "$BINARY_INFO" == *aarch64* ]]; then
+            MAC_ARCH=arm64
+          elif [[ "$BINARY_INFO" == *x86_64* ]]; then
+            MAC_ARCH=x86_64
+          else
+            echo "Could not identify macOS package architecture: $BINARY_INFO" >&2
+            exit 1
+          fi
+          cp "$MAC_ZIP" "$BUNDLE/FontBlind-$VERSION-macOS-$MAC_ARCH.zip"
+
+          LINUX_PACKAGE="$(find "$RUNNER_TEMP/candidate/linux" -type f -name "fontblind-bin-$VERSION-1-x86_64.pkg.tar.zst" -print -quit)"
+          LINUX_SUM="$(find "$RUNNER_TEMP/candidate/linux" -type f -name "fontblind-bin-$VERSION-1-x86_64.pkg.tar.zst.sha256" -print -quit)"
+          LINUX_SOURCE="$(find "$RUNNER_TEMP/candidate/linux" -type f -name 'SOURCE_SHA' -print -quit)"
+          test -s "$LINUX_PACKAGE"
+          test -s "$LINUX_SUM"
+          test "$(cat "$LINUX_SOURCE")" = "$TARGET_SHA"
+          (cd "$(dirname "$LINUX_PACKAGE")" && sha256sum -c "$(basename "$LINUX_SUM")")
+          tar --zstd -tf "$LINUX_PACKAGE" >/dev/null
+          if tar --zstd -tf "$LINUX_PACKAGE" | grep -Eiq '\.(ttf|otf|woff2?|ttc|otc)$'; then
+            echo "Refusing package containing a font binary." >&2
+            exit 1
+          fi
+          cp "$LINUX_PACKAGE" "$BUNDLE/"
+
+          cp "docs/releases/$VERSION.md" "$BUNDLE/RELEASE_NOTES.md"
+          cp LICENSE.txt "$BUNDLE/LICENSE.txt"
+          printf '%s\n' "$TARGET_SHA" > "$BUNDLE/SOURCE_SHA"
+          (cd "$BUNDLE" && sha256sum FontBlind-* fontblind-bin-* RELEASE_NOTES.md LICENSE.txt SOURCE_SHA > SHA256SUMS)
+          (cd "$BUNDLE" && sha256sum -c SHA256SUMS)
+          tar -C "$BUNDLE" -czf "$RUNNER_TEMP/FontBlind-$VERSION-release-dry-run-$TARGET_SHA.tar.gz" .
+
+      - name: Upload validated dry-run bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: fontblind-release-dry-run-${{ inputs.target_sha }}
+          path: ${{ runner.temp }}/FontBlind-${{ env.VERSION }}-release-dry-run-${{ inputs.target_sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish prerelease only when explicitly confirmed
+        if: ${{ inputs.publish }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = "$TAG"
+          BUNDLE="$RUNNER_TEMP/release-bundle"
+          gh release create "$TAG" "$BUNDLE"/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title "FontBlind $VERSION" \
+            --notes-file "$BUNDLE/RELEASE_NOTES.md" \
+            --prerelease

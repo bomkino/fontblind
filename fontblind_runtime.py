@@ -334,7 +334,13 @@ class ContractJobStore(JobStore):
 class ContractFontBlindServer(FontBlindServer):
     """Use the strict parent store without changing the stable base server API."""
 
-    def __init__(self, address: tuple[str, int], handler: type[Handler] = InstanceHandler) -> None:
+    def __init__(
+        self,
+        address: tuple[str, int],
+        handler: type[Handler] = InstanceHandler,
+        *,
+        allow_browser_shutdown: bool = False,
+    ) -> None:
         self.jobs: ContractJobStore | None = None
         try:
             ThreadingHTTPServer.__init__(self, address, handler)
@@ -342,6 +348,7 @@ class ContractFontBlindServer(FontBlindServer):
             self.session_secret = secrets.token_urlsafe(32)
             self.worker_gate = threading.BoundedSemaphore(value=1)
             self.download_gate = threading.BoundedSemaphore(value=MAX_CONCURRENT_DOWNLOADS)
+            self.allow_browser_shutdown = bool(allow_browser_shutdown)
         except Exception:
             ThreadingHTTPServer.server_close(self)
             raise

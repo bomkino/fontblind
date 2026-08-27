@@ -182,7 +182,10 @@ ARCHIVE_TEMP="$BUILD_ROOT/FontBlind.zip"
 ditto -c -k --sequesterRsrc --keepParent "$BUNDLE" "$ARCHIVE_TEMP"
 unzip -tq "$ARCHIVE_TEMP" >/dev/null
 ditto "$ARCHIVE_TEMP" "$ARTIFACT_DIR/FontBlind.zip"
-shasum -a 256 "$ARTIFACT_DIR/FontBlind.zip" > "$ARTIFACT_DIR/FontBlind.zip.sha256"
+(
+  cd "$ARTIFACT_DIR"
+  shasum -a 256 "FontBlind.zip" > "FontBlind.zip.sha256"
+)
 
 if (( INSTALL_APP )); then
   INSTALL_TARGET="/Applications/FontBlind.app"

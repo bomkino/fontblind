@@ -13,6 +13,7 @@ class BrowserPrivacyAndAccessibilityTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.instance = (WEB / "instance-export.js").read_text(encoding="utf-8")
         cls.app = (WEB / "app.js").read_text(encoding="utf-8")
+        cls.desktop = (WEB / "desktop-runtime.js").read_text(encoding="utf-8")
         cls.index = (WEB / "index.html").read_text(encoding="utf-8")
         cls.styles = (WEB / "styles.css").read_text(encoding="utf-8")
         cls.map_styles = (WEB / "lab-map.css").read_text(encoding="utf-8")
@@ -22,9 +23,10 @@ class BrowserPrivacyAndAccessibilityTests(unittest.TestCase):
         self.assertIn("installErrorFirewall(root)", self.instance)
         self.assertNotIn("data && typeof data.error", self.instance)
         self.assertNotIn("source_filename", self.index)
-        self.assertNotIn("localStorage", self.instance + self.app)
-        self.assertNotIn("sessionStorage", self.instance + self.app)
-        self.assertNotIn("console.", self.instance + self.app)
+        browser_source = self.instance + self.app + self.desktop
+        self.assertNotIn("localStorage", browser_source)
+        self.assertNotIn("sessionStorage", browser_source)
+        self.assertNotIn("console.", browser_source)
 
     def test_static_download_contract_rejects_identity_bearing_url_surfaces(self) -> None:
         self.assertIn("parsed.search || parsed.hash", self.instance)

@@ -64,10 +64,13 @@ python lab_gauntlet.py variable Regular.ttf Bold.ttf --loops 3
 
 The tool is intentionally explicit about variable donor sets. Guessing families from filenames would reproduce the exact source-identity coupling the product avoids.
 
-## Next, in order
+## Current and next
 
-1. Add static-instance export with explicit selected coordinates and the same zero-ID exit checks.
-2. Add optional Fontspector profiles and Diffenator-compatible proof export without making either a runtime dependency.
-3. Add glyph-level incompatibility heatmaps and repair bundles.
-4. Add downloadable local proof sheets after their privacy and font-embedding contract is explicit.
-5. Keep designed Italic, optical-size authoring, and model proposals behind reviewable research lanes.
+Verified static-instance export is now implemented. It freezes explicit selected coordinates, independently re-instances and proves the location, removes variation machinery, and applies the same zero-ID publication boundary. See the current source/release distinction in [`maintenance/REPOSITORY_STATE.md`](maintenance/REPOSITORY_STATE.md).
+
+Remaining research, in order:
+
+1. Add optional Fontspector profiles and Diffenator-compatible proof export without making either a runtime dependency.
+2. Add glyph-level incompatibility heatmaps and repair bundles.
+3. Add downloadable local proof sheets after their privacy and font-embedding contract is explicit.
+4. Keep designed Italic, optical-size authoring, and model proposals behind reviewable research lanes.

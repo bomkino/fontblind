@@ -1,0 +1,23 @@
+pkgname=fontblind-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='Local zero-ID font workshop for Garuda KDE'
+arch=('x86_64')
+url='https://github.com/bomkino/fontblind'
+license=('MIT')
+depends=('glibc' 'hicolor-icon-theme' 'xdg-utils' 'kde-cli-tools')
+provides=('fontblind')
+conflicts=('fontblind' 'fontblind-git')
+options=('!strip' '!debug')
+source=()
+sha256sums=()
+
+package() {
+  install -d "$pkgdir/opt/fontblind"
+  cp -a "$startdir/runtime/FontBlindServer" "$pkgdir/opt/fontblind/"
+  install -Dm755 "$startdir/fontblind" "$pkgdir/usr/bin/fontblind"
+  install -Dm644 "$startdir/fontblind.desktop" "$pkgdir/usr/share/applications/fontblind.desktop"
+  install -Dm644 "$startdir/fontblind.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/fontblind.svg"
+  install -Dm644 "$startdir/README.txt" "$pkgdir/usr/share/doc/fontblind/README.txt"
+  install -Dm644 "$startdir/LICENSE.txt" "$pkgdir/usr/share/licenses/fontblind/LICENSE.txt"
+}

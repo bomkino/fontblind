@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.7.0 — Unreleased
+
+- Add one Linux target: a native x86_64 pacman package for current Garuda Linux on KDE Plasma 6, with the Dell G7 as the physical reference machine.
+- Reuse the exact hardened FontBlind runtime and browser interface; no Electron, Qt shell, GTK rewrite, daemon, telemetry, cloud service, or second font engine is introduced.
+- Add a private per-user single-instance lease so a second KDE launch reopens the existing loopback session instead of starting competing workers.
+- Add a session-authenticated Quit control enabled only for the browser-hosted desktop mode; the page waits until the local service is unreachable before reporting closure.
+- Route browser opening through the XDG desktop default-application seam so KDE owns the browser choice and no X11 `DISPLAY` dependency enters the application.
+- Build the pacman package twice through clean `makepkg` passes and require byte-identical `pkg.tar.zst` output.
+- Install, inspect, exercise, and uninstall the package in a current Arch container; run the complete pinned multiscript release gauntlet from the installed executable.
+- Model KDE Plasma 6 under a Wayland-only environment, verify exact second-launch reuse, authenticated shutdown, runtime-state cleanup, desktop metadata, package ownership, and residue-free uninstall.
+- Keep the support claim deliberately narrow: no other Linux distribution, desktop, architecture, package format, or machine is claimed by this release.
+
 ## 3.6.0 — 2026-08-27
 
 - Add verified static-instance export for generated `wght`, `wdth`, and mechanical `slnt` positions, producing a static TTF, WOFF2, exact CSS, and deterministic ZIP without reopening original donors.
