@@ -118,3 +118,79 @@ jobs:
           test -s output/macos/FontBlind.zip.sha256
           shasum -a 256 -c output/macos/FontBlind.zip.sha256
           unzip -tq output/macos/FontBlind.zip
+
+  garuda-package:
+    name: Garuda KDE package · x86_64
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    timeout-minutes: 90
+    needs: [test, corpus]
+    env:
+      FONTBLIND_CORPUS_DIR: ${{ github.workspace }}/tests/corpus/cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install current Arch build and desktop tools
+        shell: bash
+        run: |
+          pacman -Syu --noconfirm --needed \
+            python python-pip curl file binutils libarchive zstd \
+            xdg-utils hicolor-icon-theme desktop-file-utils nodejs shadow
+          useradd --create-home --uid 1001 builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+      - name: Build reproducible Garuda package
+        shell: bash
+        run: |
+          runuser -u builder -- env \
+            HOME=/home/builder \
+            GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
+            FONTBLIND_CORPUS_DIR="$FONTBLIND_CORPUS_DIR" \
+            bash -lc '
+              set -euo pipefail
+              cd "$GITHUB_WORKSPACE"
+              python3 tools/fetch_corpus.py --output "$FONTBLIND_CORPUS_DIR"
+              python3 tools/fetch_corpus.py --output "$FONTBLIND_CORPUS_DIR" --verify-only
+              ./build-fontblind-linux.sh
+              python3 -m venv /home/builder/fontblind-test-venv
+              /home/builder/fontblind-test-venv/bin/python -m pip install --disable-pip-version-check --quiet .
+            '
+      - name: Install and inspect package
+        shell: bash
+        run: |
+          PACKAGE="$(find output/linux -maxdepth 1 -type f -name 'fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst' -print -quit)"
+          test -n "$PACKAGE"
+          sha256sum -c "$PACKAGE.sha256"
+          pacman -Qp "$PACKAGE" | grep -qx 'fontblind-bin 3.7.0-1'
+          pacman -U --noconfirm "$PACKAGE"
+          pacman -Qk fontblind-bin
+          pacman -Qo /usr/bin/fontblind /opt/fontblind/FontBlindServer/FontBlindServer
+          desktop-file-validate /usr/share/applications/fontblind.desktop
+      - name: Exercise installed KDE Wayland lifecycle and full gauntlet
+        shell: bash
+        run: |
+          chown -R builder:builder "$GITHUB_WORKSPACE/tests/corpus/cache"
+          runuser -u builder -- env \
+            HOME=/home/builder \
+            GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
+            FONTBLIND_CORPUS_DIR="$FONTBLIND_CORPUS_DIR" \
+            FONTBLIND_TEST_PYTHON=/home/builder/fontblind-test-venv/bin/python \
+            bash -lc '
+              set -euo pipefail
+              cd "$GITHUB_WORKSPACE"
+              ./linux/verify-installed-package.sh "$GITHUB_WORKSPACE" "$FONTBLIND_CORPUS_DIR"
+            '
+      - name: Uninstall without residue
+        shell: bash
+        run: |
+          pacman -Rns --noconfirm fontblind-bin
+          test ! -e /usr/bin/fontblind
+          test ! -e /opt/fontblind
+          test ! -e /usr/share/applications/fontblind.desktop
+          test ! -e /usr/share/icons/hicolor/scalable/apps/fontblind.svg
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fontblind-garuda-kde-x86_64
+          path: |
+            output/linux/fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
+            output/linux/fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst.sha256
+          if-no-files-found: error
+          retention-days: 7
