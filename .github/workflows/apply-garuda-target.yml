@@ -48,7 +48,10 @@ jobs:
           git apply --check /tmp/garuda-target.patch
           git apply --whitespace=error-all /tmp/garuda-target.patch
           rm -rf .garuda-target-patch
-          rm -f .github/workflows/apply-garuda-target.yml
+          # GitHub's workflow token cannot modify workflow files. Keep those
+          # paths unchanged in this push; the connected repository writer
+          # applies the separately reviewed workflow update and cleanup.
+          git restore --source=HEAD -- .github/workflows
       - name: Validate focused target contracts
         run: |
           bash -n build-fontblind-linux.sh
