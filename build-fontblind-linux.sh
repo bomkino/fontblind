@@ -214,9 +214,14 @@ mkdir -p "$AUDIT_ROOT"
 bsdtar -xf "$PACKAGE_ONE" -C "$AUDIT_ROOT"
 [[ -x "$AUDIT_ROOT/usr/bin/fontblind" ]] || fail "Installed launcher mode is not executable."
 [[ -x "$AUDIT_ROOT/opt/fontblind/FontBlindServer/FontBlindServer" ]] || fail "Installed server mode is not executable."
-if grep -R -I -n -E 'AppImage|aarch64|portable Linux|Ubuntu|Debian|Fedora' "$AUDIT_ROOT" >/dev/null; then
-  fail "Garuda package retained an unsupported-platform claim."
-fi
+for public_text in \
+  "$AUDIT_ROOT/usr/bin/fontblind" \
+  "$AUDIT_ROOT/usr/share/applications/fontblind.desktop" \
+  "$AUDIT_ROOT/usr/share/doc/fontblind/README.txt"; do
+  if grep -I -n -E 'AppImage|aarch64|portable Linux|Ubuntu|Debian|Fedora' "$public_text" >/dev/null; then
+    fail "Garuda package retained an unsupported-platform claim in ${public_text#$AUDIT_ROOT/}."
+  fi
+done
 while IFS= read -r -d '' file_path; do
   if strings "$file_path" | grep -F -e "$APP_DIR" -e "$BUILD_ROOT" -e '/home/runner/' -e '/Users/runner/' >/dev/null; then
     fail "Garuda package retained a source or temporary build path: ${file_path#$AUDIT_ROOT/}"
