@@ -27,7 +27,24 @@ jobs:
           python-version: "3.12"
       - name: Reconstruct reviewed patch
         run: |
-          cat .garuda-target-patch/part-* | base64 -d | gzip -d > /tmp/garuda-target.patch
+          test "$(git hash-object .garuda-target-patch/part-01)" = "6607c3e56ea83b993ab86031e3441391cf987e38"
+          test "$(git hash-object .garuda-target-patch/part-02)" = "7a6c4a0774c885c12c813d5b5d97fcd862ea9197"
+          test "$(git hash-object .garuda-target-patch/part-03)" = "988023746c71905fd309fd91922bd6c0f0db3d6c"
+          test "$(git hash-object .garuda-target-patch/part-04a)" = "d60bfbd016c160b91fae842a7eba496aca68d6bc"
+          test "$(git hash-object .garuda-target-patch/part-04b)" = "16448ede7c83c1ad916d0a46a23dc7d07d671f5c"
+          test "$(git hash-object .garuda-target-patch/part-05)" = "92191fd3bfcc03292e9ace1f133df8b5ef2eeb97"
+          test "$(git hash-object .garuda-target-patch/part-06)" = "28953ee1be7aea0b7bbb07314b753218054ffea7"
+          test "$(git hash-object .garuda-target-patch/part-07)" = "a831ff9d5c2000ff0df07745f3400709e565c715"
+          cat \
+            .garuda-target-patch/part-01 \
+            .garuda-target-patch/part-02 \
+            .garuda-target-patch/part-03 \
+            .garuda-target-patch/part-04a \
+            .garuda-target-patch/part-04b \
+            .garuda-target-patch/part-05 \
+            .garuda-target-patch/part-06 \
+            .garuda-target-patch/part-07 \
+            | base64 -d | gzip -d > /tmp/garuda-target.patch
           git apply --check /tmp/garuda-target.patch
           git apply --whitespace=error-all /tmp/garuda-target.patch
           rm -rf .garuda-target-patch
