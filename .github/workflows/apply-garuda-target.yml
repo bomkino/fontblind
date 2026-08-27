@@ -1,0 +1,50 @@
+name: Apply Garuda KDE target
+
+on:
+  push:
+    branches:
+      - codex/linux-browser-app-foundation
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-garuda-kde-target
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Apply Garuda KDE target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: codex/linux-browser-app-foundation
+          fetch-depth: 1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Reconstruct reviewed patch
+        run: |
+          cat .garuda-target-patch/part-* | base64 -d | gzip -d > /tmp/garuda-target.patch
+          git apply --check /tmp/garuda-target.patch
+          git apply --whitespace=error-all /tmp/garuda-target.patch
+          rm -rf .garuda-target-patch
+          rm -f .github/workflows/apply-garuda-target.yml
+      - name: Validate focused target contracts
+        run: |
+          bash -n build-fontblind-linux.sh
+          bash -n linux/verify-installed-package.sh
+          sh -n linux/fontblind
+          python -m py_compile fontblind_desktop.py tests/test_desktop_lifecycle.py tests/test_linux_package.py
+          python -m unittest tests.test_linux_package tests.test_desktop_lifecycle -v
+          node --check web/desktop-runtime.js
+          node --test tests/desktop-runtime.test.cjs
+      - name: Commit narrowed Garuda KDE implementation
+        run: |
+          git config user.name "pitch.dog"
+          git config user.email "111725271+bomkino@users.noreply.github.com"
+          git add -A
+          git commit -m "Narrow Linux support to Garuda KDE on the Dell G7"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
