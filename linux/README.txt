@@ -1,9 +1,13 @@
-FONTBLIND FOR LINUX
+FONTBLIND FOR GARUDA KDE
 
-PRIMARY TARGET
+SUPPORTED TARGET
 
-The release gate is Garuda Linux / Arch / KDE on x86_64. The preferred package
-is:
+  Garuda Linux on x86_64
+  KDE Plasma 6
+  Wayland-first desktop session
+  Dell G7 reference machine
+
+The supported Linux artifact is:
 
   fontblind-bin-<version>-1-x86_64.pkg.tar.zst
 
@@ -11,7 +15,7 @@ Install it with:
 
   sudo pacman -U ./fontblind-bin-<version>-1-x86_64.pkg.tar.zst
 
-Launch FontBlind from the application menu or run:
+Launch FontBlind from the KDE application launcher or run:
 
   fontblind
 
@@ -19,44 +23,23 @@ Remove it with:
 
   sudo pacman -Rns fontblind-bin
 
-PORTABLE FALLBACKS
+HOW IT WORKS
 
-AppImage:
+FontBlind starts one private service on 127.0.0.1 and opens the reviewed
+interface through KDE's configured default browser. It does not ship Electron,
+GTK, Qt, a cloud client, telemetry, or a second font engine. Source fonts remain
+inside the existing anonymous local descriptor and isolated-worker boundary.
 
-  chmod +x FontBlind-<version>-x86_64.AppImage
-  ./FontBlind-<version>-x86_64.AppImage
-
-If FUSE is unavailable:
-
-  APPIMAGE_EXTRACT_AND_RUN=1 ./FontBlind-<version>-x86_64.AppImage
-
-AppDir archive:
-
-  tar -xzf FontBlind-<version>-linux-x86_64.tar.gz
-  ./FontBlind.AppDir/AppRun
-
-HOW THE LINUX EDITION WORKS
-
-FontBlind starts one private loopback-only service on 127.0.0.1 and opens the
-same reviewed interface in your default browser. It does not ship a second
-Chromium/Electron runtime, contact a cloud service, or require an account.
-Source fonts still travel only through anonymous local file descriptors.
-
-Use "Quit FontBlind" in the footer when finished. The browser verifies that the
-local service has actually stopped before saying the app is closed. A second
-launch reopens the already-running local app instead of starting another worker
-service.
-
-The Garuda package declares xdg-utils so KDE can open the configured default
-browser. The AppImage and tar.gz fallbacks require a graphical browser and an
-available xdg-open or gio desktop opener.
+A second launch reopens the exact existing loopback session. Use "Quit
+FontBlind" in the footer to stop the local server, workers, and retained jobs.
+The browser does not claim closure until the service is actually gone.
 
 SUPPORT BOUNDARY
 
-The x86_64 Garuda/Arch package and x86_64 portable artifacts are release-gated.
-The builder contains an aarch64 path, but aarch64 is not claimed until an exact
-native runner and packaged-artifact journey are added.
+This package is release-gated only for the target above. No support claim is
+made for another distribution, desktop, architecture, or machine. FontBlind
+has no OpenGL, Vulkan, CUDA, NVIDIA, or discrete-GPU runtime dependency; the
+Dell G7 graphics stack is outside its processing path.
 
-FontBlind remains local, telemetry-free, and fail-closed. Only process fonts you
-are entitled to modify. FontBlind's MIT licence covers the software, not the
-font files supplied to it.
+Only process fonts you are entitled to modify. FontBlind's MIT licence covers
+the software, not font files supplied to it.

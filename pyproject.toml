@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fontblind-local"
 version = "3.7.0"
-description = "Local-only macOS app for zero-ID fonts, mechanical slants, and donor-built variable fonts."
+description = "Local-only zero-ID font workshop with verified Oblique, variable, and static-instance outputs."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE.txt" }

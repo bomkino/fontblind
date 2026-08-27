@@ -1,8 +1,8 @@
 pkgname=fontblind-bin
 pkgver=@VERSION@
 pkgrel=1
-pkgdesc='Local zero-ID font workshop with verified Oblique, variable and static-instance outputs'
-arch=('@ARCH@')
+pkgdesc='Local zero-ID font workshop for Garuda KDE'
+arch=('x86_64')
 url='https://github.com/bomkino/fontblind'
 license=('MIT')
 depends=('hicolor-icon-theme' 'xdg-utils')
@@ -13,12 +13,11 @@ source=()
 sha256sums=()
 
 package() {
-  install -d "$pkgdir/opt/fontblind/usr/bin" "$pkgdir/usr/bin"
-  cp -a "$startdir/FontBlind.AppDir/usr/bin/FontBlindServer" "$pkgdir/opt/fontblind/usr/bin/"
-  install -Dm755 "$startdir/FontBlind.AppDir/AppRun" "$pkgdir/opt/fontblind/AppRun"
-  ln -s /opt/fontblind/AppRun "$pkgdir/usr/bin/fontblind"
+  install -d "$pkgdir/opt/fontblind"
+  cp -a "$startdir/runtime/FontBlindServer" "$pkgdir/opt/fontblind/"
+  install -Dm755 "$startdir/fontblind" "$pkgdir/usr/bin/fontblind"
   install -Dm644 "$startdir/fontblind.desktop" "$pkgdir/usr/share/applications/fontblind.desktop"
-  install -Dm644 "$startdir/FontBlind.AppDir/fontblind.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/fontblind.svg"
-  install -Dm644 "$startdir/FontBlind.AppDir/README.txt" "$pkgdir/usr/share/doc/fontblind/README.txt"
-  install -Dm644 "$startdir/FontBlind.AppDir/usr/share/licenses/fontblind/LICENSE.txt" "$pkgdir/usr/share/licenses/fontblind/LICENSE.txt"
+  install -Dm644 "$startdir/fontblind.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/fontblind.svg"
+  install -Dm644 "$startdir/README.txt" "$pkgdir/usr/share/doc/fontblind/README.txt"
+  install -Dm644 "$startdir/LICENSE.txt" "$pkgdir/usr/share/licenses/fontblind/LICENSE.txt"
 }

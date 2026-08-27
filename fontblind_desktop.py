@@ -180,15 +180,15 @@ class BrowserAppLease:
 
 
 def open_desktop_url(url: str) -> bool:
-    """Open one reviewed loopback URL through the user's desktop browser."""
+    """Open one reviewed loopback URL through the desktop default-app seam.
+
+    Garuda KDE owns the browser choice. Prefer the XDG desktop opener so the
+    request follows Plasma's configured default application without depending
+    on X11, a bundled browser, or Python's browser-controller heuristics.
+    """
     canonical = _valid_loopback_url(url)
     if canonical is None:
         return False
-    try:
-        if webbrowser.open_new_tab(canonical):
-            return True
-    except Exception:
-        pass
     candidates = (("xdg-open", canonical), ("gio", "open", canonical))
     for command in candidates:
         if shutil.which(command[0]) is None:
@@ -205,4 +205,7 @@ def open_desktop_url(url: str) -> bool:
             return True
         except OSError:
             continue
-    return False
+    try:
+        return bool(webbrowser.open_new_tab(canonical))
+    except Exception:
+        return False

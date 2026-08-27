@@ -57,12 +57,30 @@ class DesktopLeaseTests(unittest.TestCase):
             with self.assertRaises(DesktopLifecycleError):
                 BrowserAppLease.acquire()
 
-    def test_browser_opener_accepts_only_the_reviewed_loopback_url(self) -> None:
-        with mock.patch("fontblind_desktop.webbrowser.open_new_tab", return_value=True) as opener:
+    def test_browser_opener_prefers_the_kde_xdg_default_application_seam(self) -> None:
+        with (
+            mock.patch("fontblind_desktop.shutil.which", side_effect=lambda command: "/usr/bin/xdg-open" if command == "xdg-open" else None),
+            mock.patch("fontblind_desktop.subprocess.Popen") as process,
+            mock.patch("fontblind_desktop.webbrowser.open_new_tab") as browser,
+        ):
+            self.assertTrue(open_desktop_url("http://127.0.0.1:7331"))
+            process.assert_called_once()
+            self.assertEqual(process.call_args.args[0], ("xdg-open", "http://127.0.0.1:7331"))
+            browser.assert_not_called()
+
+    def test_browser_opener_falls_back_without_widening_the_url_contract(self) -> None:
+        with (
+            mock.patch("fontblind_desktop.shutil.which", return_value=None),
+            mock.patch("fontblind_desktop.webbrowser.open_new_tab", return_value=True) as opener,
+        ):
             self.assertTrue(open_desktop_url("http://127.0.0.1:7331"))
             opener.assert_called_once_with("http://127.0.0.1:7331")
-        with mock.patch("fontblind_desktop.webbrowser.open_new_tab") as opener:
+        with (
+            mock.patch("fontblind_desktop.shutil.which") as lookup,
+            mock.patch("fontblind_desktop.webbrowser.open_new_tab") as opener,
+        ):
             self.assertFalse(open_desktop_url("https://example.com"))
+            lookup.assert_not_called()
             opener.assert_not_called()
 
 

@@ -1,59 +1,90 @@
-# Garuda Linux acceptance pass
+# Dell G7 · Garuda KDE acceptance
 
-Reference machine: **Garuda Linux / Arch / KDE, x86_64**.
+This is the only remaining human gate after the exact CI package is green.
 
-Record the exact package SHA-256 and test date before starting.
+Record before testing:
 
-## Pacman package
+- date;
+- Garuda version and kernel;
+- KDE Plasma version;
+- Wayland or X11 session;
+- Dell G7 model identifier;
+- package filename;
+- package SHA-256;
+- configured default browser.
 
-1. Install the exact `fontblind-bin-<version>-1-x86_64.pkg.tar.zst` with
-   `sudo pacman -U`.
-2. Confirm FontBlind appears in the KDE application launcher with the correct
-   icon and no terminal window.
-3. Launch it. Confirm exactly one browser tab opens to `127.0.0.1`.
-4. Launch FontBlind again. Confirm it reopens the existing local app rather than
-   starting a competing service.
-5. Complete Blind with one permitted font and open every download.
-6. Complete static Oblique and confirm the UI calls it Oblique, not Italic.
-7. Complete one variable build, move an axis, and freeze one interior position.
-8. Confirm moving the live axis removes the stale frozen package.
-9. Start a build, try another build, and confirm explicit back-pressure.
-10. Use **Quit FontBlind**. Confirm the page reports closure only after the local
-    service has stopped.
-11. Relaunch and confirm no prior jobs or source labels remain.
-12. Uninstall with `sudo pacman -Rns fontblind-bin`. Confirm `/opt/fontblind`,
-    `/usr/bin/fontblind`, and the desktop entry are removed.
+## Install and launch
 
-## AppImage fallback
+1. Install the exact package:
 
-1. Run the exact AppImage normally.
-2. Repeat launch, one Blind build, one frozen-instance build, download, and quit.
-3. Run it again with `APPIMAGE_EXTRACT_AND_RUN=1` and repeat the shutdown path.
-4. Confirm neither mode writes files beside the AppImage except user-requested
-   downloads.
+   ```bash
+   sudo pacman -U ./fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
+   ```
+
+2. Confirm FontBlind appears in the KDE application launcher with its icon and
+   opens no terminal window.
+3. Launch it. Confirm one browser tab opens to `127.0.0.1`.
+4. Launch it again. Confirm it reopens the same local URL rather than starting a
+   second service.
+5. Confirm the page exposes **Quit FontBlind** only in this packaged desktop
+   mode.
+
+## Product journey
+
+1. Complete Blind with one permitted TTF or OTF and open all four downloads.
+2. Build static Oblique and confirm the result is called Oblique, never a
+   designed Italic.
+3. Build one generated variable font, move its axis, and freeze an interior
+   position.
+4. Move the live axis again and confirm the stale frozen package disappears.
+5. Start a build and attempt another; confirm explicit local back-pressure.
+6. Quit during an idle state, relaunch, and confirm no prior jobs or labels
+   remain.
+7. Start a build, use Quit FontBlind, and confirm the worker and local service
+   stop.
+
+## KDE, Wayland, and browser behaviour
+
+1. Run the journey in the normal KDE Plasma 6 Wayland session.
+2. Confirm the configured default browser opens; FontBlind must not select a
+   browser of its own.
+3. Confirm file pickers and downloads behave normally under KDE.
+4. Confirm no NVIDIA/Intel GPU selection prompt or graphics dependency appears.
+5. Repeat launch and quit once after suspending and waking the Dell G7.
 
 ## Keyboard and accessibility
 
-1. Complete every workbench without a pointer.
-2. Verify tab order through navigation, dropzone, controls, proof, downloads,
+1. Complete each workbench without a pointer.
+2. Check focus order through navigation, dropzone, controls, proof, downloads,
    reset, and quit.
-3. Confirm processing, refusal, success, stale-result removal, and closure are
-   announced by the active Linux screen reader.
-4. Test 200% browser zoom and a narrow window without horizontal loss of core
-   controls.
-5. Enable reduced motion and confirm no functional transition depends on
-   animation.
+3. Check processing, refusal, success, stale-result removal, and closure with
+   the active Linux screen reader.
+4. Test 200% browser zoom and a narrow window.
+5. Enable reduced motion and confirm no function depends on animation.
 6. Confirm proof rows remain understandable without colour.
 
 ## Privacy observation
 
 While processing a font:
 
-- inspect the browser network panel and confirm every request stays on the one
-  loopback origin;
-- confirm public responses, download names, page text, and errors contain no
-  original filename, path, family, foundry, designer, licence text, or hash;
-- quit during an active build and confirm the worker exits with the host.
+- confirm browser traffic remains on one loopback origin;
+- confirm responses, page text, errors, and download names reveal no original
+  filename, path, family, foundry, designer, licence text, or hash;
+- confirm Quit removes the reconnect URL and the previous session cannot be
+  reopened.
 
-A failed item blocks the Garuda release claim. It does not get converted into a
-cosmetic follow-up.
+## Uninstall
+
+```bash
+sudo pacman -Rns fontblind-bin
+```
+
+Confirm these are gone:
+
+- `/opt/fontblind`;
+- `/usr/bin/fontblind`;
+- `/usr/share/applications/fontblind.desktop`;
+- `/usr/share/icons/hicolor/scalable/apps/fontblind.svg`.
+
+Any failure blocks the Garuda/Dell G7 support claim. Do not convert a failed
+functional item into cosmetic follow-up work.

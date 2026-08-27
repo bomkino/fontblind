@@ -1,114 +1,104 @@
-# FontBlind Linux architecture
+# FontBlind 3.7 Garuda architecture
 
-## Binding target
+## Supported target
 
-FontBlind's first Linux edition targets **Garuda Linux / Arch / KDE on x86_64**.
-That machine is the reference environment. Other distributions do not get to
-weaken or delay the Garuda path.
+FontBlind’s Linux edition has one binding target:
 
-The release order is:
+- current Garuda Linux, tracking Arch;
+- KDE Plasma 6;
+- Wayland-first session;
+- x86_64 Dell G7;
+- native pacman package installation.
 
-1. `pkg.tar.zst` for direct pacman installation.
-2. AppImage fallback.
-3. AppDir `tar.gz` fallback.
+The supported artifact is:
 
-`.deb`, RPM, Flatpak, and Snap are intentionally deferred until the Garuda
-edition is reliable.
+```text
+fontblind-bin-<version>-1-x86_64.pkg.tar.zst
+```
+
+No support claim is made for another distribution, desktop, architecture,
+package format, or machine.
 
 ## Product shape
 
-The Linux edition is a desktop launcher around the existing hardened local
-runtime. It opens FontBlind in the user's configured browser instead of
-shipping a second Chromium/Electron runtime.
+The package is a small desktop host around the existing hardened FontBlind
+runtime. It does not create a Linux-specific font engine or UI.
 
-Process model:
+1. KDE launches `/usr/bin/fontblind`.
+2. The launcher refuses root and starts the frozen server in browser-app mode.
+3. A private per-user lease permits one server process.
+4. The server binds an ephemeral `127.0.0.1` port and stores only that loopback
+   URL in a mode-0600 state file.
+5. `xdg-open` passes the URL to KDE’s configured default browser.
+6. Font work continues through the existing anonymous-source, isolated-worker,
+   artifact-seal, and bounded-resource contracts.
+7. A session-authenticated footer control requests shutdown.
+8. The page reports closure only after the loopback service has disappeared.
 
-1. `AppRun` or `/usr/bin/fontblind` starts the frozen `FontBlindServer`.
-2. The process claims a private per-user runtime lock.
-3. The server binds an ephemeral `127.0.0.1` port and publishes only that URL in
-   a mode-0600 runtime file.
-4. The default browser opens the reviewed FontBlind web interface.
-5. Heavy font work continues in isolated child processes using anonymous source
-   descriptors and the existing parent-liveness pipe.
-6. An authenticated footer control requests shutdown.
-7. The page waits until the loopback service is genuinely unreachable before
-   reporting that FontBlind is closed.
+A second launch reads the existing loopback URL and reopens it. It cannot create
+another local service while the owner lease is alive.
 
-A second launch cannot create a competing server. It reads the existing
-loopback URL from the private runtime file and reopens that app.
+## KDE and graphics boundary
+
+The host is browser-based and uses the XDG default-application seam. It has no
+Qt, Electron, GTK, OpenGL, Vulkan, CUDA, NVIDIA, PRIME-offload, or discrete-GPU
+runtime dependency. The Dell G7’s hybrid graphics stack remains the browser and
+desktop compositor’s concern, not FontBlind’s processing path.
+
+The automated target model sets:
+
+```text
+XDG_CURRENT_DESKTOP=KDE
+KDE_SESSION_VERSION=6
+XDG_SESSION_TYPE=wayland
+WAYLAND_DISPLAY=wayland-0
+DISPLAY unset
+```
+
+A fake `xdg-open` verifies that the exact loopback URL and the Wayland-only KDE
+environment cross the desktop boundary intact.
 
 ## Security boundary
 
-The Linux host preserves the 3.6 runtime contract:
+The Linux host preserves the established contracts:
 
-- loopback binding only;
-- strict `Host` validation;
+- loopback binding and strict `Host` validation;
 - random per-process session secret;
-- no permissive CORS response;
-- session-authenticated mutations;
-- one optional session-authenticated shutdown endpoint, enabled only in the
-  Linux browser-hosted mode;
-- anonymous source file descriptors;
-- isolated worker processes;
-- canonical artifact validation and immutable download snapshots;
-- silent request logging and generic public filenames.
+- no permissive cross-origin response;
+- session-authenticated mutations and shutdown;
+- anonymous source descriptors and parent-liveness pipes;
+- isolated heavy workers;
+- exact proof vocabularies;
+- canonical SFNT, WOFF2, CSS, and ZIP validation;
+- immutable retained-artifact seals and download snapshots;
+- bounded workers, jobs, bytes, child exports, and downloads;
+- silent request logging and generic public paths.
 
 The desktop state file contains only `http://127.0.0.1:<port>`. It never contains
-a session secret, source path, filename, family name, hash, or artifact token.
-The lock directory and state files must be owned by the current user, non-linked,
-and private.
+a session secret, source path, filename, family name, hash, job token, or
+artifact URL.
 
-## Why no bundled Electron runtime in this slice
+## Package gate
 
-FontBlind already has a complete browser interface and a hardened local server.
-Bundling Electron would duplicate a large browser engine, create another update
-and sandbox surface, and substantially increase the artifact without improving
-font-engineering truth.
+`build-fontblind-linux.sh`:
 
-The system-browser host is not treated as dogma. A native Linux shell becomes
-justified if the Garuda acceptance pass exposes a material failure that cannot
-be solved at the current public seam: broken desktop lifecycle, unacceptable
-file-picker behaviour, inaccessible focus, unreliable downloads, or visual
-parity that the supported browsers cannot deliver.
+1. freezes `fontblind_entry.py` for x86_64 Linux;
+2. runs the exact release gauntlet against that frozen executable;
+3. stages the runtime, launcher, desktop entry, icon, licence, and usage notes;
+4. invokes `makepkg` twice from separate clean directories;
+5. requires byte-identical packages;
+6. inspects metadata, members, modes, architecture, dependencies, and path
+   leakage;
+7. emits the package and adjacent SHA-256 receipt.
 
-## Packaging
+CI then installs the package in a current Arch container, runs the same complete
+product gauntlet from `/opt/fontblind`, models the KDE Wayland lifecycle,
+verifies second-launch reuse and authenticated shutdown, checks pacman ownership,
+and removes the package without residue.
 
-### Garuda / Arch
+## Claim boundary
 
-`build-fontblind-linux.sh --arch-package-only` creates
-`fontblind-bin-<version>-1-<arch>.pkg.tar.zst` through `makepkg`. The package
-installs:
-
-- `/opt/fontblind/AppRun`;
-- the self-contained frozen server under `/opt/fontblind/usr/bin`;
-- `/usr/bin/fontblind` symlink;
-- KDE-visible desktop metadata;
-- scalable application icon;
-- licence and local usage notes.
-
-The package depends only on `xdg-utils` at runtime. FontTools, HarfBuzz, Brotli,
-and Python are frozen into the private application directory.
-
-### Portable Linux
-
-`build-fontblind-linux.sh --portable-only` creates:
-
-- an AppImage using a checksum-pinned `appimagetool` and checksum-pinned type-2
-  runtime;
-- a deterministic AppDir `tar.gz` fallback;
-- SHA-256 receipts for both.
-
-Both formats execute the same `AppRun`, the same frozen server, and the same
-browser-hosted shutdown journey.
-
-## Release claims
-
-The following must remain separate:
-
-- **Automated:** exact runtime, corpus, package, AppImage, install, launch,
-  shutdown, cleanup, checksums, and artifact structure.
-- **Human:** Garuda/KDE application-menu behaviour, default-browser opening,
-  actual desktop feel, screen-reader speech, and high-zoom usability.
-
-An automated green run does not silently become a claim that the human desktop
-experience has been heard or observed.
+Automated proof establishes the package and runtime contract. The physical Dell
+G7 pass in `LINUX_ACCEPTANCE.md` remains necessary before publishing a
+hardware-specific support claim. CI cannot see the actual KDE launcher, hear the
+screen reader, or judge the chosen browser’s desktop behaviour.

@@ -16,9 +16,11 @@ Generated `slnt`, `wght`, and `wdth` fonts can also freeze any verified position
 
 The native Apple-silicon app supports macOS 13 or newer. Download the published build from [GitHub Releases](https://github.com/bomkino/fontblind/releases/latest), unzip it, and move `FontBlind.app` to Applications. It is ad-hoc signed, not notarized, so first launch may require Control-click → **Open**.
 
-### Garuda / Arch Linux
+### Garuda KDE on the Dell G7
 
-The 3.7 Linux candidate targets Garuda Linux / Arch / KDE on x86_64. Its primary artifact is:
+The FontBlind 3.7 Linux candidate has one target: current **Garuda Linux**, **KDE Plasma 6**, **Wayland-first**, on the **x86_64 Dell G7**.
+
+Its only supported Linux artifact is:
 
 ```text
 fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
@@ -31,11 +33,7 @@ sudo pacman -U ./fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
 sudo pacman -Rns fontblind-bin
 ```
 
-The package adds a KDE-visible launcher and `/usr/bin/fontblind`. It opens the reviewed FontBlind interface in the configured default browser while all processing remains in the private local runtime.
-
-### Portable Linux
-
-The same build produces x86_64 AppImage and AppDir `tar.gz` fallbacks. The AppImage can run without FUSE using `APPIMAGE_EXTRACT_AND_RUN=1`. aarch64 build logic exists but is not a release claim until a native aarch64 packaged journey is added.
+The package adds a KDE-visible application entry and `/usr/bin/fontblind`. It opens the reviewed interface through KDE’s configured default browser while all font processing remains inside the existing private loopback runtime. No support claim is made for another Linux distribution, desktop, architecture, or machine.
 
 ## Use
 
@@ -52,7 +50,7 @@ The app owns an ephemeral loopback-only worker. Uploaded bytes are held in anony
 
 To keep ordinary machines responsive, FontBlind allows one heavy build at a time, one static export per generated parent, eight retained verified jobs, 768 MiB of retained artifact bytes, and two concurrent sealed download snapshots. New work receives explicit local back-pressure rather than accumulating hidden workers or buffers.
 
-On Linux, **Quit FontBlind** uses the private session to stop the local service and remove temporary jobs. The page does not claim closure until the loopback service has actually disappeared. A second launch reopens the existing local app rather than starting a competing server.
+On Garuda, **Quit FontBlind** uses the private session to stop the local service and remove temporary jobs. The page does not claim closure until the loopback service has disappeared. A second launch reopens the exact existing local app rather than starting another server.
 
 ## Build the macOS app
 
@@ -62,30 +60,20 @@ On Linux, **Quit FontBlind** uses the private session to stop the local service 
 
 The builder creates `output/macos/FontBlind.zip`, ad-hoc signs the build, verifies nested code signatures, launches the exact frozen server, runs every product lane against it, and installs `/Applications/FontBlind.app` through a recoverable staging path. Pass `--no-install` to package without changing the installed app. It requires macOS 13 or newer and Apple command-line developer tools. The build is not Developer ID signed or notarized.
 
-## Build the Linux packages
+## Build the Garuda package
 
-On Garuda/Arch, run as a normal user:
-
-```bash
-./build-fontblind-linux.sh --all
-```
-
-On another modern x86_64 glibc Linux system, build the portable artifacts:
-
-```bash
-./build-fontblind-linux.sh --portable-only
-```
-
-The Linux builder freezes the same Python runtime, executes the exact all-lane release gauntlet, tests the AppDir shutdown journey, verifies checksum-pinned AppImage tooling, and creates SHA-256 receipts. When `makepkg` is available it also creates the pacman package. See `docs/LINUX_ARCHITECTURE.md` and `docs/LINUX_ACCEPTANCE.md`.
-
-The representative release corpus is fetched separately and is never bundled with the app:
+Run on current x86_64 Garuda or Arch as a normal user with the Arch build tools installed:
 
 ```bash
 python3 tools/fetch_corpus.py
-FONTBLIND_CORPUS_DIR="$PWD/tests/corpus/cache" ./build-fontblind-linux.sh --all
+FONTBLIND_CORPUS_DIR="$PWD/tests/corpus/cache" ./build-fontblind-linux.sh
 ```
 
-Every corpus file is pinned by immutable upstream commit, byte size, and SHA-256. See `tests/corpus/README.md`.
+The builder freezes the same Python runtime, runs the complete multiscript release gauntlet against the exact frozen executable, creates the native pacman package twice through clean `makepkg` passes, requires byte-identical package output, inspects package metadata and contents, rejects private build paths, and emits a SHA-256 receipt.
+
+CI then installs the package in a current Arch container, runs the complete product gauntlet from the installed executable, simulates KDE Plasma 6 under a Wayland-only environment with no X11 `DISPLAY`, verifies second-launch reuse and authenticated shutdown, and uninstalls the package without residue. Final support still requires the short physical smoke pass in `docs/LINUX_ACCEPTANCE.md` on the Dell G7.
+
+The representative corpus is fetched separately and is never bundled with the app. Every corpus file is pinned by immutable upstream commit, byte size, and SHA-256. See `tests/corpus/README.md`.
 
 ## Current zero-ID contract
 
