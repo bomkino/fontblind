@@ -16,6 +16,7 @@ class GarudaPackageContractTests(unittest.TestCase):
         cls.readme = (ROOT / "linux" / "README.txt").read_text(encoding="utf-8")
         cls.pkgbuild = (ROOT / "linux" / "PKGBUILD.in").read_text(encoding="utf-8")
         cls.verifier = (ROOT / "linux" / "verify-installed-package.sh").read_text(encoding="utf-8")
+        cls.preflight = (ROOT / "linux" / "dell-g7-preflight.sh").read_text(encoding="utf-8")
         cls.workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
         cls.project_readme = (ROOT / "README.md").read_text(encoding="utf-8")
         cls.changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -98,6 +99,32 @@ class GarudaPackageContractTests(unittest.TestCase):
         for forbidden in ("nvidia-smi", "glxinfo", "vulkaninfo", "DISPLAY=:"):
             self.assertNotIn(forbidden, self.verifier)
 
+    def test_dell_preflight_collects_a_receipt_without_installing_or_updating(self) -> None:
+        for fragment in (
+            "FontBlind Dell G7 · Garuda KDE preflight",
+            "/etc/os-release",
+            "/sys/class/dmi/id/product_name",
+            "plasmashell --version",
+            "XDG_SESSION_TYPE",
+            "xdg-settings get default-web-browser",
+            "pacman -Q fontblind-bin",
+            "pacman -T glibc hicolor-icon-theme xdg-utils kde-cli-tools",
+            "--fontblind-browser-app --no-open",
+            "/api/shutdown",
+            "RESULT: PASS",
+            "RESULT: FAIL",
+        ):
+            self.assertIn(fragment, self.preflight)
+        for forbidden in (
+            "sudo ",
+            "pacman -U",
+            "pacman -R",
+            "garuda-update",
+            "curl http",
+            "curl https",
+        ):
+            self.assertNotIn(forbidden, self.preflight)
+
     def test_ci_builds_installs_exercises_uninstalls_and_exports_the_arch_package(self) -> None:
         for fragment in (
             "container: archlinux:base-devel",
@@ -107,6 +134,8 @@ class GarudaPackageContractTests(unittest.TestCase):
             "verify-installed-package.sh",
             "desktop-file-validate",
             "pacman -Rns --noconfirm fontblind-bin",
+            "linux/dell-g7-preflight.sh",
+            "docs/LINUX_ACCEPTANCE.md",
             "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
         ):
             self.assertIn(fragment, self.workflow)
