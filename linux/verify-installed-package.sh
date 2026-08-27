@@ -72,6 +72,7 @@ RAW_LOG="$ROOT/raw-server.log"
 RAW_PID=$!
 RAW_READY="$(wait_for_line '^FONTBLIND_READY 127\.0\.0\.1 [0-9]+$' "$RAW_LOG" "$RAW_PID")"
 read -r _READY _HOST RAW_PORT <<< "$RAW_READY"
+mkdir -m 0700 -p "$ROOT/release-gauntlet"
 "$PYTHON" "$REPOSITORY_ROOT/release_gauntlet.py" \
   "http://127.0.0.1:$RAW_PORT" \
   "$ROOT/release-gauntlet" \
