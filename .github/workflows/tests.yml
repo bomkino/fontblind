@@ -137,6 +137,10 @@ jobs:
             xdg-utils kde-cli-tools hicolor-icon-theme desktop-file-utils nodejs shadow
           useradd --create-home --uid 1001 builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
+          bash -n build-fontblind-linux.sh
+          bash -n linux/verify-installed-package.sh
+          bash -n linux/dell-g7-preflight.sh
+          sh -n linux/fontblind
       - name: Build reproducible Garuda package
         shell: bash
         run: |
@@ -209,5 +213,8 @@ jobs:
           path: |
             output/linux/fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
             output/linux/fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst.sha256
+            linux/dell-g7-preflight.sh
+            docs/LINUX_ACCEPTANCE.md
+            linux/README.txt
           if-no-files-found: error
           retention-days: 7
