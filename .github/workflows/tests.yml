@@ -166,7 +166,21 @@ jobs:
           pacman -U --noconfirm "$PACKAGE"
           pacman -Qk fontblind-bin
           pacman -Qo /usr/bin/fontblind /opt/fontblind/FontBlindServer/FontBlindServer
+          pacman -T glibc hicolor-icon-theme xdg-utils kde-cli-tools
           desktop-file-validate /usr/share/applications/fontblind.desktop
+
+          set +e
+          /usr/bin/fontblind unexpected >/tmp/fontblind-arguments.log 2>&1
+          ARGUMENT_STATUS=$?
+          /usr/bin/fontblind >/tmp/fontblind-root-launcher.log 2>&1
+          ROOT_LAUNCHER_STATUS=$?
+          /opt/fontblind/FontBlindServer/FontBlindServer \
+            --fontblind-browser-app --no-open >/tmp/fontblind-root-entry.log 2>&1
+          ROOT_ENTRY_STATUS=$?
+          set -e
+          test "$ARGUMENT_STATUS" -eq 64
+          test "$ROOT_LAUNCHER_STATUS" -eq 77
+          test "$ROOT_ENTRY_STATUS" -eq 77
       - name: Exercise installed KDE Wayland lifecycle and full gauntlet
         shell: bash
         run: |
