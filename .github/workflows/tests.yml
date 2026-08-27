@@ -138,7 +138,11 @@ jobs:
         run: |
           test -s output/macos/FontBlind.zip
           test -s output/macos/FontBlind.zip.sha256
-          shasum -a 256 -c output/macos/FontBlind.zip.sha256
+          (
+            cd output/macos
+            grep -Eq '^[0-9a-f]{64}  FontBlind\.zip$' FontBlind.zip.sha256
+            shasum -a 256 -c FontBlind.zip.sha256
+          )
           unzip -tq output/macos/FontBlind.zip
           printf '%s\n' "$VERIFIED_SHA" > output/macos/SOURCE_SHA
       - name: Upload verified macOS package
