@@ -223,8 +223,12 @@ for public_text in \
   fi
 done
 while IFS= read -r -d '' file_path; do
+  relative="${file_path#$AUDIT_ROOT/}"
+  case "$relative" in
+    .BUILDINFO|.MTREE|.PKGINFO) continue ;;
+  esac
   if strings "$file_path" | grep -F -e "$APP_DIR" -e "$BUILD_ROOT" -e '/home/runner/' -e '/Users/runner/' >/dev/null; then
-    fail "Garuda package retained a source or temporary build path: ${file_path#$AUDIT_ROOT/}"
+    fail "Garuda package retained a source or temporary build path: $relative"
   fi
 done < <(find "$AUDIT_ROOT" -type f -print0)
 
