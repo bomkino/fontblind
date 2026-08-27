@@ -49,15 +49,21 @@ jobs:
           rm -rf .canonicalise
           rm -f .github/workflows/apply-canonicalisation.yml
 
-      - name: Commit canonical repository state
+      - name: Commit code and documentation
         shell: bash
         run: |
           set -euo pipefail
           python3 -m compileall -q .
           for file in web/*.js; do node --check "$file"; done
+          git restore --source="$GITHUB_SHA" -- \
+            .canonicalise \
+            .github/workflows/apply-canonicalisation.yml \
+            .github/workflows/export-source.yml \
+            .github/workflows/tests.yml
+          rm -f .github/workflows/release.yml
           git add -A
           git diff --cached --check
           git config user.name pitch.dog
           git config user.email 111725271+bomkino@users.noreply.github.com
-          git commit -m "feat: canonicalise FontBlind 3.7 across macOS and experimental Garuda"
+          git commit -m "docs: canonicalise FontBlind 3.7 repository truth"
           git push origin HEAD:codex/linux-browser-app-foundation
