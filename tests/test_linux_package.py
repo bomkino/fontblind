@@ -152,7 +152,7 @@ class GarudaPackageContractTests(unittest.TestCase):
 
     def test_temporary_linux_scaffolding_is_absent(self) -> None:
         workflows = {path.name for path in (ROOT / ".github" / "workflows").glob("*.yml")}
-        self.assertEqual(workflows, {"tests.yml"})
+        self.assertEqual(workflows, {"release.yml", "tests.yml"})
         self.assertFalse((ROOT / ".tmp-export-trigger").exists())
         self.assertFalse((ROOT / "tests" / "test_linux_packaging.py").exists())
         self.assertFalse((ROOT / "linux" / "fontblind-launcher.sh").exists())

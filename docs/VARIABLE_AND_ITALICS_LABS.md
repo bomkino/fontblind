@@ -1,6 +1,6 @@
 # Italics Lab + Variable Lab
 
-Research snapshot: 25 August 2026. FontBlind 3.4 implements deterministic local lanes for static mechanical Oblique, mechanical `slnt`, real-donor `wght`, real-donor `wdth`, and independent `wght` + `wdth`. Designed Italic, optical/custom axis authoring, repair bundles, and model proposals remain roadmap work.
+Research snapshot: 25 August 2026, updated for current source on 27 August 2026. FontBlind implements deterministic local lanes for static mechanical Oblique, mechanical `slnt`, real-donor `wght`, real-donor `wdth`, independent `wght` + `wdth`, and verified static-instance export. Designed Italic, optical/custom axis authoring, repair bundles, and model proposals remain roadmap work. Current repository truth lives in [`maintenance/REPOSITORY_STATE.md`](maintenance/REPOSITORY_STATE.md).
 
 ## Straight answer
 
@@ -29,7 +29,7 @@ Codex subscription assistance works as an explicit authoring loop:
 
 This uses Codex as the collaborator in the task, not as an automatic model embedded in the app. Embedding Codex invisibly would require a separate supported product/API integration.
 
-## Oblique Lab — implemented in 3.4
+## Oblique Lab — implemented
 
 ### Current stable lane
 
@@ -56,7 +56,7 @@ A real italic is a drawing problem, not a shear. The accepted artifact remains a
 
 Inspect, repair, subset, instance, and re-export an existing VF. This is the least speculative tier.
 
-### Tier B — Family Merge: `wght` + `wdth` implemented in 3.4
+### Tier B — Family Merge: `wght` + `wdth` implemented
 
 The current app accepts 2–12 genuinely compatible static TrueType donors. It reads weight and registered width-percentage coordinates from `OS/2`, never filenames, and fails closed on mismatched glyph order, cmap, units-per-em, outline topology, or duplicate coordinate tuples.
 
@@ -97,13 +97,13 @@ It may be worth a separate local sandbox after Family Merge works. It must never
 
 `opsz`, `ital`, contrast, grade, serif, and unusual custom axes need actual masters or deliberate authoring. Codex can help construct and repair those masters; it cannot recover ground truth that is absent from one file.
 
-## Open-source findings that shaped 3.4
+## Open-source findings that shaped the Labs
 
 - **FontTools varLib** remains the compilation core. It supports n-dimensional designspaces, but its masters still need truly interpolatable structures. FontBlind therefore validates topology, model shape, exact donor locations, and WOFF2 round-trips around varLib instead of treating a successful compile as proof.
 - **Fontra** validates the browser interaction model: live axis sliders, local Python service, designspace/UFO workflows, anchors, kerning, features, and RTL preview. Fontra is GPL-3.0; FontBlind borrows interaction principles, not code.
 - **static-to-variable** is an interesting MIT-licensed topology-repair experiment. It redraws separate weights onto a shared skeleton and skips glyphs it cannot convert. That is inspiration for a future repair queue, not a dependency or a reason to weaken the current exact-donor gate.
 - **FontForge** explicitly describes automatic oblique/italic transformations as imperfect starting points. This supports FontBlind's honest Oblique label and the separate future lane for designed italic repair.
-- **Diffenator2** and **Fontspector** are strong future QA additions for visual diffs, axis cross-products, and OpenType profile checks. They are not bundled into 3.4's packaged runtime.
+- **Diffenator2** and **Fontspector** are strong future QA additions for visual diffs, axis cross-products, and OpenType profile checks. They are not bundled into the packaged runtime.
 - **NIV** stays outside the product for both maturity and licence reasons. A later experiment would run in a separate local sandbox with explicit candidate/review status.
 
 ## App interaction model
@@ -130,13 +130,16 @@ The three tools live in one native macOS window but keep separate workbenches. B
 - Variable axes behave at min/default/max, every corner, and random interior samples.
 - Final FontBlind pass removes all original identity and embedding labels.
 
-## Roadmap from 3.4
+## Current roadmap
 
-1. Harden all shipped lanes against larger real-world corpora, especially complex scripts and sparse multi-axis master sets.
-2. Add axis-corner proof sheets, Codex repair bundles, a glyph-level failure heatmap, and optional static-instance export.
-3. Add designed italic review, kerning/feature probes, optical-size, and custom-axis authoring.
-4. Add optional Fontspector/Diffenator2 gauntlets without bloating the default local app.
-5. Evaluate model proposals only inside a clearly quarantined, licence-compatible local experiment.
+Completed since the original 3.4 research snapshot: larger pinned multiscript corpus coverage, deterministic axis proof grids, and verified static-instance export.
+
+Remaining work:
+
+1. Add Codex repair bundles and a glyph-level failure heatmap.
+2. Add designed italic review, kerning/feature probes, optical-size, and custom-axis authoring.
+3. Add optional Fontspector/Diffenator2 gauntlets without bloating the default local app.
+4. Evaluate model proposals only inside a clearly quarantined, licence-compatible local experiment.
 
 ## Primary references
 

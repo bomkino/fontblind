@@ -1,79 +1,95 @@
 # FontBlind
 
-[![Tests](https://github.com/bomkino/fontblind/actions/workflows/tests.yml/badge.svg)](https://github.com/bomkino/fontblind/actions/workflows/tests.yml)
+[![Verification](https://github.com/bomkino/fontblind/actions/workflows/tests.yml/badge.svg)](https://github.com/bomkino/fontblind/actions/workflows/tests.yml)
 
-FontBlind is one local-only type workshop with three tools:
+FontBlind is a local font-transformation and packaging workshop. It has three workbenches:
 
-- **Blind** takes one TTF or OTF and makes a faithful zero-ID native font, full WOFF2, clean CSS, and ZIP.
-- **Oblique Lab** takes one upright TrueType font and makes either a declared static Oblique or a live upright-to-Oblique `slnt` variable font at 4–20 degrees. Neither output pretends to be a designed Italic.
-- **Variable Lab** takes 2–12 compatible static TrueType donors and builds a donor-driven `wght`, `wdth`, or independent two-axis variable font. It refuses incompatible or merely coupled families instead of inventing missing drawings.
+- **Blind** converts one TTF or OTF into a faithful zero-ID native font, full WOFF2, CSS, and ZIP.
+- **Oblique Lab** makes a declared mechanical Oblique or a live upright-to-Oblique `slnt` variable font. It never presents mechanical slanting as a designed Italic.
+- **Variable Lab** builds verified `wght`, `wdth`, or independent two-axis variable fonts from compatible static TrueType donors. It refuses missing or incompatible designspace evidence.
 
-Generated `slnt`, `wght`, and `wdth` fonts can also freeze any verified position into a static TTF, WOFF2, exact `@font-face` CSS, and deterministic ZIP. Static export uses only FontBlind’s generated zero-ID variable font; original donors are not reopened.
+Generated `slnt`, `wght`, and `wdth` results can freeze any verified position into a static TTF, WOFF2, exact `@font-face` CSS, and deterministic ZIP.
 
-## Platforms and packages
+FontBlind does **not** provide typography review, Candidate comparison, design-system planning, or handoff documents. Those belong to the separate Font Previewer product; no application code or product model is shared.
 
-### macOS
+## Current status
 
-The native Apple-silicon app supports macOS 13 or newer. Download the published build from [GitHub Releases](https://github.com/bomkino/fontblind/releases/latest), unzip it, and move `FontBlind.app` to Applications. It is ad-hoc signed, not notarized, so first launch may require Control-click → **Open**.
+- Canonical branch: `main`
+- Current source version: **3.7.0 — unreleased**
+- Latest published release: **v3.4.0**
+- macOS source/package target: macOS 13+, Apple Silicon
+- Linux source/package target: current Garuda Linux on its rolling Arch base, KDE Plasma 6, Wayland-first, x86_64 Dell G7
+- Linux posture: **experimental and physically unverified** until the documented Dell G7 journey passes
 
-### Garuda KDE on the Dell G7
+The published v3.4.0 download does not contain the unreleased 3.5–3.7 source work. Build current source yourself or use exact-SHA CI artifacts. See [`docs/maintenance/REPOSITORY_STATE.md`](docs/maintenance/REPOSITORY_STATE.md).
 
-The FontBlind 3.7 Linux candidate has one target: current **Garuda Linux**, **KDE Plasma 6**, **Wayland-first**, on the **x86_64 Dell G7**.
+## Install published macOS release
 
-Its only supported Linux artifact is:
+Download the published build from [GitHub Releases](https://github.com/bomkino/fontblind/releases/latest), verify its checksum, unzip it, and move `FontBlind.app` to Applications. The published app is ad-hoc signed, not Apple Developer ID signed or notarized. macOS may require Control-click → **Open**. No notarisation, stapling, or Gatekeeper acceptance is claimed.
+
+## Experimental Garuda package
+
+Current source produces:
 
 ```text
 fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
+fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst.sha256
 ```
 
-Install and remove it with pacman:
+Verify, install, and remove it with:
 
 ```bash
+sha256sum -c fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst.sha256
 sudo pacman -U ./fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
 sudo pacman -Rns fontblind-bin
 ```
 
-The package adds a KDE-visible application entry and `/usr/bin/fontblind`. It opens the reviewed interface through KDE’s configured default browser while all font processing remains inside the existing private loopback runtime. No support claim is made for another Linux distribution, desktop, architecture, or machine.
+The package adds one KDE application entry and `/usr/bin/fontblind`. It opens the reviewed interface through KDE’s configured default browser while all font processing remains in FontBlind’s private loopback runtime. CI verifies the package in a current Arch container; it does not prove the real Dell firmware, Garuda installation, KDE session, configured browser, suspend/wake behaviour, file pickers, or attended accessibility quality. Follow [`docs/LINUX_ACCEPTANCE.md`](docs/LINUX_ACCEPTANCE.md) before making a hardware-specific support claim.
 
-## Use
+## Build and verify
 
-Every successful tool emits four generic, tool-specific downloads:
-
-- native TTF or OTF;
-- full WOFF2;
-- generic `@font-face` CSS with no `local(...)` lookup;
-- one ZIP containing all three.
-
-For generated variable results, move the live axis controls to any verified position and choose **Freeze current position**. FontBlind records the exact coordinates, reruns the static exit contract, loads the frozen WOFF2 in the browser, and then exposes the static package. Moving an axis invalidates the old frozen result rather than silently relabelling stale bytes.
-
-The app owns an ephemeral loopback-only worker. Uploaded bytes are held in anonymous file descriptors without source filenames or directory entries. If the app dies, the child worker exits and the kernel closes those descriptors. Jobs disappear on reset, after two hours, or when the app closes.
-
-To keep ordinary machines responsive, FontBlind allows one heavy build at a time, one static export per generated parent, eight retained verified jobs, 768 MiB of retained artifact bytes, and two concurrent sealed download snapshots. New work receives explicit local back-pressure rather than accumulating hidden workers or buffers.
-
-On Garuda, **Quit FontBlind** uses the private session to stop the local service and remove temporary jobs. The page does not claim closure until the loopback service has disappeared. A second launch reopens the exact existing local app rather than starting another server.
-
-## Build the macOS app
+Install the locked source dependencies, then run the public gate:
 
 ```bash
-./build-fontblind-app.command
+python -m pip install .
+python -m pip check
+python -m compileall -q .
+for file in web/*.js; do node --check "$file"; done
+node --test tests/*.test.cjs
+python -m unittest discover -s tests -v
 ```
 
-The builder creates `output/macos/FontBlind.zip`, ad-hoc signs the build, verifies nested code signatures, launches the exact frozen server, runs every product lane against it, and installs `/Applications/FontBlind.app` through a recoverable staging path. Pass `--no-install` to package without changing the installed app. It requires macOS 13 or newer and Apple command-line developer tools. The build is not Developer ID signed or notarized.
+Build the macOS package on macOS 13+ with Apple command-line developer tools:
 
-## Build the Garuda package
+```bash
+./build-fontblind-app.command --no-install
+```
 
-Run on current x86_64 Garuda or Arch as a normal user with the Arch build tools installed:
+Build the experimental Garuda/Arch package as a normal user on current x86_64 Garuda or Arch:
 
 ```bash
 python3 tools/fetch_corpus.py
 FONTBLIND_CORPUS_DIR="$PWD/tests/corpus/cache" ./build-fontblind-linux.sh
 ```
 
-The builder freezes the same Python runtime, runs the complete multiscript release gauntlet against the exact frozen executable, creates the native pacman package twice through clean `makepkg` passes, requires byte-identical package output, inspects package metadata and contents, rejects private build paths, and emits a SHA-256 receipt.
+The representative corpus is fetched separately and never bundled. Every corpus file is open-licensed and pinned by upstream commit, byte size, and SHA-256. See [`tests/corpus/README.md`](tests/corpus/README.md).
 
-CI then installs the package in a current Arch container, runs the complete product gauntlet from the installed executable, simulates KDE Plasma 6 under a Wayland-only environment with no X11 `DISPLAY`, verifies second-launch reuse and authenticated shutdown, and uninstalls the package without residue. Final support still requires the short physical smoke pass in `docs/LINUX_ACCEPTANCE.md` on the Dell G7.
+## Use
 
-The representative corpus is fetched separately and is never bundled with the app. Every corpus file is pinned by immutable upstream commit, byte size, and SHA-256. See `tests/corpus/README.md`.
+Every successful workbench emits four generic, tool-specific downloads:
+
+- native TTF or OTF;
+- full WOFF2;
+- generic `@font-face` CSS with no `local(...)` lookup;
+- one ZIP containing all three.
+
+For generated variable results, move the live controls to any verified position and choose **Freeze current position**. FontBlind records the exact coordinates, reruns the static exit contract, loads the frozen WOFF2 in the browser, and only then exposes the static package. Moving an axis invalidates the prior frozen result instead of relabelling stale bytes.
+
+The app owns an ephemeral loopback-only worker. Uploaded bytes are held in anonymous file descriptors without source filenames or directory entries. If the app dies, the child worker exits and the kernel closes those descriptors. Jobs disappear on reset, after two hours, or when the app closes.
+
+To keep ordinary machines responsive, FontBlind permits one heavy build, one static export per generated parent, eight retained verified jobs, 768 MiB of retained artifact bytes, and two concurrent sealed download snapshots. New work receives explicit local back-pressure instead of hidden worker or buffer growth.
+
+On Garuda, **Quit FontBlind** uses the private session to stop the local service and remove temporary jobs. The page does not claim closure until the loopback service disappears. A second launch reopens the existing local app rather than starting another server.
 
 ## Current zero-ID contract
 
@@ -102,7 +118,7 @@ The native output deliberately has no per-artifact identifier. Generic Bold/Ital
 - Source/output HarfBuzz shaping comparison across Latin, Arabic, Devanagari, Hebrew, Thai, marks, ligatures, and numerals.
 - Full WOFF2 encode/decode contract check, including per-glyph TrueType instructions.
 - Raw WOFF2 `FontFace` load before the browser reveals downloads.
-- Parent-side inspection of the actual retained files rather than worker-reported descriptors.
+- Parent-side inspection of retained files rather than worker-reported descriptors.
 - Atomic package commit; a failed gate keeps no output.
 
 ## Lab boundaries
@@ -135,18 +151,14 @@ A failed replacement leaves the last verified static package intact. Deleting or
 
 The browser displays only exact reviewed API envelopes. Unknown backend text is replaced with generic workbench copy so future exception messages, filenames, paths, or donor labels cannot enter the DOM.
 
-Workbench navigation exposes tabs and tabpanels, roving keyboard focus, a skip link, described dropzones, live processing and result regions, explicit busy states, focus handoff after success or refusal, non-colour proof announcements, reduced-motion support, and responsive reflow. Automated tests cover these semantics and race conditions. A final human VoiceOver listening pass remains useful before a public release because automated accessibility trees cannot judge whether spoken timing and phrasing feel coherent.
+Workbench navigation exposes tabs and tabpanels, roving keyboard focus, a skip link, described dropzones, live processing and result regions, explicit busy states, focus handoff after success or refusal, non-colour proof announcements, reduced-motion support, and responsive reflow. Automated tests cover semantics and races. They do not establish attended VoiceOver quality; that remains a separate human gate in [`docs/ACCESSIBILITY_ACCEPTANCE.md`](docs/ACCESSIBILITY_ACCEPTANCE.md).
 
 ## Release validation
 
-The permanent release gate runs on Python 3.10, 3.12, and 3.13 on Ubuntu, Python 3.12 on macOS, and a separately built ad-hoc-signed macOS application. It also runs a pinned open-licensed corpus on Ubuntu and macOS, then processes the same corpus through the exact frozen server before the bundle is signed.
+The canonical workflow checks the exact PR head or `main` commit. It runs Python 3.10, 3.12, and 3.13 on Ubuntu; Python 3.12 on macOS; browser tests; the complete Python suite; the pinned corpus on Ubuntu and macOS; a native ad-hoc-signed macOS package; and the experimental Garuda package inside a current Arch container. Artifacts include the exact verified commit SHA.
 
-Corpus coverage includes static TrueType, non-CID CFF1, Arabic cursive shaping, Devanagari reordering and conjuncts, Hebrew marks and right-to-left shaping, Thai positioning, real two-axis variable fonts, real extracted-donor refusal on geometry drift, Oblique Lab, and fractional static positions.
-
-The exact frozen-runtime product gauntlet lives in `release_gauntlet.py`; `build-fontblind-app.command` orchestrates it rather than hiding test logic inside shell.
+The frozen-runtime gauntlet lives in `release_gauntlet.py`; package builders orchestrate it rather than hiding product checks in shell. Publication is manual, guarded, and separate from verification. See [`docs/maintenance/RELEASE_POLICY.md`](docs/maintenance/RELEASE_POLICY.md).
 
 ## Licence and font files
 
-FontBlind is MIT-licensed. That licence covers this software, not fonts processed with it. Only process font files you are entitled to modify.
-
-The native browser app is the product workflow. Command launchers remain source-level developer fallbacks. For Lab internals and the release corpus, see `docs/LAB_HARDENING.md`, `lab_gauntlet.py`, and `tests/corpus/README.md`.
+FontBlind is MIT-licensed. That licence covers this software, not fonts processed with it. Only process font files you are entitled to modify. No proprietary, client, system, or mystery font binary belongs in this repository or its release artifacts.

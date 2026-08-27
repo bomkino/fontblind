@@ -1,84 +1,52 @@
-# FontBlind 3.6 release checklist
+# FontBlind release checklist
 
-This checklist separates machine-verifiable release evidence from actions that require a repository owner or a human using assistive technology.
+This is a reusable checklist. It does not describe a specific branch, pull request, or historical release. Current repository truth lives in [`maintenance/REPOSITORY_STATE.md`](maintenance/REPOSITORY_STATE.md); release claims are governed by [`maintenance/RELEASE_POLICY.md`](maintenance/RELEASE_POLICY.md).
 
-## Automated release gate
+## Candidate identity
 
-The exact final commit must pass all of the following in `.github/workflows/tests.yml`:
+- [ ] `main` is the candidate source.
+- [ ] The intended full commit SHA is recorded outside the candidate commit itself.
+- [ ] `fontblind_version.py`, `pyproject.toml`, macOS bundle metadata, Linux package metadata, UI labels, artifact names, changelog, and release notes agree.
+- [ ] The tag is new and resolves to the exact intended commit.
+- [ ] The latest published release remains untouched.
 
-### Runtime and package contract
+## Automated gate
 
-- Python 3.10, 3.12, and 3.13 on Ubuntu.
-- Python 3.12 on macOS.
-- Browser JavaScript syntax and Node contract tests.
-- Full Python suite with the pinned corpus available to legacy pipeline tests.
-- Dedicated representative-corpus suite on Ubuntu and macOS.
-- Ad-hoc-signed macOS package build.
-- Frozen-server Blind, Oblique, `slnt`, Variable, static-instance, download, ZIP, cleanup, and parent/child gauntlet.
-- Every pinned corpus asset processed through the exact frozen server before signing.
-- Blind’s public response deliberately does not expose the internal `variable` flag. The packaged corpus gate confirms the downloaded native font’s actual `fvar` table instead of inventing or inferring a new browser-visible model field.
-- The exact-runtime client honours only the authored `429` sealed-download back-pressure, retries it for at most one second, and reports any other status with the returned safe payload rather than hiding a failed download.
-- Bundle signature, release ZIP, checksum, and ZIP integrity checks.
+- [ ] Python compilation and dependency checks pass.
+- [ ] Browser syntax and contract tests pass.
+- [ ] The complete Python suite passes on supported Python versions.
+- [ ] The pinned open-licensed corpus verifies and runs on Ubuntu and macOS.
+- [ ] The exact frozen runtime passes `release_gauntlet.py`.
+- [ ] macOS package, nested signatures, checksum, architecture, ZIP integrity, package contents, and privacy scans pass.
+- [ ] Experimental Garuda package reproducibility, pacman install/ownership, runtime journey, KDE/Wayland simulation, checksum, package contents, privacy scans, and uninstall-without-residue pass.
+- [ ] Generated output does not change tracked source.
+- [ ] The workflow run head SHA equals the intended release commit.
 
-### Corpus integrity
+## Human and physical gates
 
-- `tests/corpus/manifest.json` uses immutable upstream commits.
-- Every file has a reviewed licence, exact byte size, and SHA-256.
-- `python tools/fetch_corpus.py` downloads only reviewed HTTPS hosts.
-- `python tools/fetch_corpus.py --verify-only` passes after fetch.
-- Corpus bytes remain outside the repository and application bundle.
-- Linux and macOS produce the expected accept/refuse outcomes.
-- Static candidates extracted from an existing variable font remain a refusal when a rebuilt donor location differs even slightly in geometry; the release gate must not soften this into approximate acceptance.
+Record these separately. Automation cannot convert them into passing evidence.
 
-### Container and privacy integrity
+- [ ] Attended VoiceOver journey, when required for the release claim.
+- [ ] Physical Dell G7 / Garuda / KDE Plasma 6 / Wayland journey, when claiming that exact Linux target.
+- [ ] Human review of warnings, installation text, and release notes.
 
-- Generated SFNT directories are contiguous, aligned, and end at the file extent.
-- SFNT padding contains only zero bytes.
-- WOFF2 declared length equals the retained file and metadata/private blocks are absent.
-- ZIP local records, central directory, and end record are contiguous and exact.
-- No trailing bytes, hidden gaps, duplicate records, unsupported flags, or unreferenced payloads survive.
-- Native, WOFF2, CSS, and ZIP independently pass the zero-ID and semantic contracts.
-- Public JSON, DOM, logs, filenames, paths, and downloads contain no source identity.
+A prerelease or experimental package may be prepared with an open human gate only when the limitation is explicit and the release does not claim that gate passed.
 
-### Version and documentation
+## Artifact review
 
-- `fontblind_version.py`, `pyproject.toml`, and `macos/Info.plist` all report `3.6.0`.
-- `CFBundleVersion` is `360`.
-- `CHANGELOG.md` describes the shipped behaviour.
-- README guarantees and refusals match the code.
-- Temporary workflows, staging helpers, corpus cache, build output, and diagnostic files are absent from the final tree.
+- [ ] Every asset belongs to the exact verified workflow run.
+- [ ] Every checksum validates after download.
+- [ ] Package filenames include the source version and supported architecture.
+- [ ] No source fonts, test corpus fonts, local paths, usernames, email addresses, credentials, source maps, internal handovers, or client material are present.
+- [ ] Software licence and third-party notices are present; font rights are not misrepresented.
 
-## Final branch audit
+## Publication
 
-Before merge:
+Use the manual release workflow only after explicit owner authorisation for that release.
 
-1. Compare the complete PR against `main`.
-2. Review every changed executable file and workflow.
-3. Confirm one public runtime and one production static-instance path.
-4. Confirm all temporary Gate 7 workflows and helpers were deleted.
-5. Confirm the exact final head has one fully green workflow run.
-6. Keep the PR draft until the repository owner has read the final report.
-7. Squash merge only with explicit owner confirmation.
-
-Recommended squash title:
-
-```text
-FontBlind 3.6: verified static instances and hardened Lab runtime
-```
-
-## Human assistive-technology acceptance
-
-Automated tests can verify semantics, focus targets, live regions, keyboard state, reduced-motion rules, and reflow. They cannot hear VoiceOver timing or judge whether spoken phrasing is comfortable.
-
-The human checklist in `docs/ACCESSIBILITY_ACCEPTANCE.md` is therefore reported separately. A release may be technically complete while this human listening pass remains unperformed, but that limitation must be stated plainly.
-
-## Publication actions
-
-The following are intentionally outside the autonomous engineering gate:
-
-- Squash merging PR #2.
-- Creating tag `v3.6.0`.
-- Publishing a GitHub release.
-- Uploading or replacing public release assets.
-
-Each changes the repository’s published state and requires explicit owner confirmation.
+- [ ] Dry-run bundle validation passes.
+- [ ] The confirmation input exactly matches the requested tag.
+- [ ] No release or tag with the requested name already exists.
+- [ ] The release is created at the exact intended commit.
+- [ ] Public assets and checksums match the validated bundle.
+- [ ] Stable, platform, accessibility, signing, notarisation, and hardware claims remain within verified evidence.

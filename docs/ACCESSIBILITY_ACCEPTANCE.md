@@ -6,7 +6,7 @@ Record macOS version, hardware, VoiceOver version, FontBlind build SHA, date, an
 
 ## Setup
 
-1. Build or unzip the exact release candidate.
+1. Build or unzip the exact candidate package being evaluated.
 2. Enable **Reduce Motion** in macOS accessibility settings.
 3. Set browser or application zoom to 200% where available.
 4. Turn VoiceOver on.
