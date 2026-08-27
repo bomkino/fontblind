@@ -48,7 +48,7 @@ class GarudaPackageContractTests(unittest.TestCase):
     def test_pkgbuild_is_fixed_to_the_garuda_arch_contract(self) -> None:
         self.assertIn("pkgname=fontblind-bin", self.pkgbuild)
         self.assertIn("arch=('x86_64')", self.pkgbuild)
-        self.assertIn("depends=('hicolor-icon-theme' 'xdg-utils')", self.pkgbuild)
+        self.assertIn("depends=('hicolor-icon-theme' 'xdg-utils' 'kde-cli-tools')", self.pkgbuild)
         self.assertIn('$pkgdir/opt/fontblind', self.pkgbuild)
         self.assertIn('$pkgdir/usr/bin/fontblind', self.pkgbuild)
         self.assertNotIn("@ARCH@", self.pkgbuild)
@@ -68,8 +68,10 @@ class GarudaPackageContractTests(unittest.TestCase):
             "TryExec=fontblind",
             "Icon=fontblind",
             "Terminal=false",
+            "Categories=Graphics;",
         ):
             self.assertIn(fragment, self.desktop)
+        self.assertNotIn("Categories=Graphics;Utility;", self.desktop)
         for forbidden in ("%f", "%F", "AppImage", "http://", "https://"):
             self.assertNotIn(forbidden, self.desktop)
 
@@ -81,6 +83,7 @@ class GarudaPackageContractTests(unittest.TestCase):
             "WAYLAND_DISPLAY=wayland-0",
             "env -u DISPLAY",
             "FONTBLIND_EXISTING",
+            'mkdir -m 0700 -p "$ROOT/release-gauntlet"',
             "release_gauntlet.py",
             "/api/shutdown",
             "desktop.url",
@@ -92,6 +95,7 @@ class GarudaPackageContractTests(unittest.TestCase):
     def test_ci_builds_installs_exercises_uninstalls_and_exports_the_arch_package(self) -> None:
         for fragment in (
             "container: archlinux:base-devel",
+            "kde-cli-tools",
             "Build reproducible Garuda package",
             "pacman -U --noconfirm",
             "verify-installed-package.sh",
