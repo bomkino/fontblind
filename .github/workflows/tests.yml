@@ -161,6 +161,9 @@ jobs:
     env:
       FONTBLIND_CORPUS_DIR: ${{ github.workspace }}/tests/corpus/cache
     steps:
+      - name: Install Git for exact checkout
+        shell: bash
+        run: pacman -Syu --noconfirm --needed git
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -170,7 +173,7 @@ jobs:
       - name: Install current Arch build and desktop tools
         shell: bash
         run: |
-          pacman -Syu --noconfirm --needed \
+          pacman -S --noconfirm --needed \
             python python-pip curl file binutils libarchive zstd \
             xdg-utils kde-cli-tools hicolor-icon-theme desktop-file-utils nodejs shadow
           useradd --create-home --uid 1001 builder
