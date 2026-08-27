@@ -158,7 +158,10 @@ jobs:
         run: |
           PACKAGE="$(find output/linux -maxdepth 1 -type f -name 'fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst' -print -quit)"
           test -n "$PACKAGE"
-          sha256sum -c "$PACKAGE.sha256"
+          (
+            cd "$(dirname "$PACKAGE")"
+            sha256sum -c "$(basename "$PACKAGE").sha256"
+          )
           pacman -Qp "$PACKAGE" | grep -qx 'fontblind-bin 3.7.0-1'
           pacman -U --noconfirm "$PACKAGE"
           pacman -Qk fontblind-bin
