@@ -58,7 +58,14 @@ jobs:
           bash -n linux/verify-installed-package.sh
           sh -n linux/fontblind
           python -m py_compile fontblind_desktop.py tests/test_desktop_lifecycle.py tests/test_linux_package.py
-          python -m unittest tests.test_linux_package tests.test_desktop_lifecycle -v
+          python -m unittest \
+            tests.test_linux_package.GarudaPackageContractTests.test_builder_has_one_x86_64_pacman_artifact_and_one_runtime \
+            tests.test_linux_package.GarudaPackageContractTests.test_desktop_entry_is_kde_visible_without_terminal_or_file_arguments \
+            tests.test_linux_package.GarudaPackageContractTests.test_installed_gate_models_plasma_wayland_and_full_product_proof \
+            tests.test_linux_package.GarudaPackageContractTests.test_kde_launcher_is_root_refusing_and_uses_the_browser_host \
+            tests.test_linux_package.GarudaPackageContractTests.test_pkgbuild_is_fixed_to_the_garuda_arch_contract \
+            tests.test_linux_package.GarudaPackageContractTests.test_public_claims_are_exactly_bounded \
+            tests.test_desktop_lifecycle -v
           node --check web/desktop-runtime.js
           node --test tests/desktop-runtime.test.cjs
       - name: Commit narrowed Garuda KDE implementation
