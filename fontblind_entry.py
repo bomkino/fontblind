@@ -13,6 +13,7 @@ second runtime or copying source paths into a new process contract.
 """
 from __future__ import annotations
 
+import os
 import signal
 import sys
 import threading
@@ -46,6 +47,11 @@ def _stop_server(_signum: int, _frame: object) -> None:
     raise KeyboardInterrupt
 
 
+def _browser_app_root_refused() -> bool:
+    getter = getattr(os, "geteuid", None)
+    return callable(getter) and int(getter()) == 0
+
+
 def _run_server(*, open_browser: bool = False, allow_browser_shutdown: bool = False) -> int:
     signal.signal(signal.SIGTERM, _stop_server)
     if hasattr(signal, "SIGHUP"):
@@ -53,6 +59,12 @@ def _run_server(*, open_browser: bool = False, allow_browser_shutdown: bool = Fa
 
     lease: BrowserAppLease | None = None
     if allow_browser_shutdown:
+        if _browser_app_root_refused():
+            print(
+                "FontBlind refuses browser-app mode as root. Launch it from the normal KDE session.",
+                file=sys.stderr,
+            )
+            return 77
         try:
             lease = BrowserAppLease.acquire()
         except DesktopLifecycleError as exc:
