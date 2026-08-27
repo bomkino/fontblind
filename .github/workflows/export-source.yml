@@ -1,0 +1,28 @@
+name: Temporary source export
+
+on:
+  push:
+    branches: [codex/linux-browser-app-foundation]
+    paths: [.github/workflows/export-source.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temporary-source-export-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Archive exact commit
+        run: git archive --format=zip --output=fontblind-source.zip HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fontblind-source-${{ github.sha }}
+          path: fontblind-source.zip
+          if-no-files-found: error
+          retention-days: 1
