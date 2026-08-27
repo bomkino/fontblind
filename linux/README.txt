@@ -2,7 +2,7 @@ FONTBLIND FOR GARUDA KDE
 
 SUPPORTED TARGET
 
-  Garuda Linux on x86_64
+  Current, fully updated Garuda Linux on x86_64
   KDE Plasma 6
   Wayland-first desktop session
   Dell G7 reference machine
@@ -11,9 +11,22 @@ The supported Linux artifact is:
 
   fontblind-bin-<version>-1-x86_64.pkg.tar.zst
 
-Install it with:
+Verify and install it with:
 
+  sha256sum -c fontblind-bin-<version>-1-x86_64.pkg.tar.zst.sha256
   sudo pacman -U ./fontblind-bin-<version>-1-x86_64.pkg.tar.zst
+
+After installation, run the non-destructive machine receipt included beside the
+package:
+
+  bash ./dell-g7-preflight.sh \
+    ./fontblind-bin-<version>-1-x86_64.pkg.tar.zst \
+    ./fontblind-dell-g7-preflight.txt
+
+It must end with RESULT: PASS before the visible journey in
+LINUX_ACCEPTANCE.md. The script observes Garuda, KDE, Wayland, Dell G7 DMI,
+package ownership, dependencies, loopback startup, and shutdown. It does not
+install, remove, update, or process anything.
 
 Launch FontBlind from the KDE application launcher or run:
 
