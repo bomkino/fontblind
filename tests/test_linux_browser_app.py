@@ -57,6 +57,20 @@ class BrowserHostedDesktopTests(unittest.TestCase):
 
         self.assertEqual(fontblind_entry.main(["FontBlindServer", "--unknown"]), 64)
 
+    def test_browser_app_mode_refuses_root_before_claiming_desktop_state(self) -> None:
+        with (
+            mock.patch("fontblind_entry._browser_app_root_refused", return_value=True),
+            mock.patch("fontblind_entry.BrowserAppLease.acquire") as acquire,
+        ):
+            self.assertEqual(
+                fontblind_entry._run_server(
+                    open_browser=False,
+                    allow_browser_shutdown=True,
+                ),
+                77,
+            )
+            acquire.assert_not_called()
+
     def test_regular_runtime_does_not_expose_browser_shutdown(self) -> None:
         server = ContractFontBlindServer(("127.0.0.1", 0), InstanceHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
