@@ -13,6 +13,9 @@ concurrency:
   group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  VERIFIED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   test:
     name: Python ${{ matrix.python }} · ${{ matrix.os }}
@@ -33,7 +36,12 @@ jobs:
           - os: macos-latest
             python: "3.12"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VERIFIED_SHA }}
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: ${{ matrix.python }}
@@ -66,6 +74,8 @@ jobs:
           PY
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
+      - name: Assert tracked source stayed clean
+        run: test -z "$(git status --short --untracked-files=no)"
 
   corpus:
     name: Representative corpus · ${{ matrix.os }}
@@ -79,7 +89,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VERIFIED_SHA }}
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
@@ -92,6 +107,8 @@ jobs:
         run: python tools/fetch_corpus.py --output "$FONTBLIND_CORPUS_DIR" --verify-only
       - name: Run representative corpus gauntlet
         run: python -m unittest tests.test_corpus -v
+      - name: Assert tracked source stayed clean
+        run: test -z "$(git status --short --untracked-files=no)"
 
   package:
     name: Native macOS package
@@ -101,7 +118,12 @@ jobs:
     env:
       FONTBLIND_CORPUS_DIR: ${{ github.workspace }}/tests/corpus/cache
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VERIFIED_SHA }}
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
@@ -118,6 +140,17 @@ jobs:
           test -s output/macos/FontBlind.zip.sha256
           shasum -a 256 -c output/macos/FontBlind.zip.sha256
           unzip -tq output/macos/FontBlind.zip
+          printf '%s\n' "$VERIFIED_SHA" > output/macos/SOURCE_SHA
+      - name: Upload verified macOS package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: fontblind-macos-${{ env.VERIFIED_SHA }}
+          path: |
+            output/macos/FontBlind.zip
+            output/macos/FontBlind.zip.sha256
+            output/macos/SOURCE_SHA
+          if-no-files-found: error
+          retention-days: 30
 
   garuda-package:
     name: Garuda KDE package · x86_64
@@ -128,7 +161,12 @@ jobs:
     env:
       FONTBLIND_CORPUS_DIR: ${{ github.workspace }}/tests/corpus/cache
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VERIFIED_SHA }}
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
       - name: Install current Arch build and desktop tools
         shell: bash
         run: |
@@ -207,14 +245,17 @@ jobs:
           test ! -e /opt/fontblind
           test ! -e /usr/share/applications/fontblind.desktop
           test ! -e /usr/share/icons/hicolor/scalable/apps/fontblind.svg
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+          printf '%s\n' "$VERIFIED_SHA" > output/linux/SOURCE_SHA
+      - name: Upload verified Garuda package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: fontblind-garuda-kde-x86_64
+          name: fontblind-garuda-kde-x86_64-${{ env.VERIFIED_SHA }}
           path: |
             output/linux/fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst
             output/linux/fontblind-bin-3.7.0-1-x86_64.pkg.tar.zst.sha256
+            output/linux/SOURCE_SHA
             linux/dell-g7-preflight.sh
             docs/LINUX_ACCEPTANCE.md
             linux/README.txt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
