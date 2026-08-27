@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import unittest
 
 
@@ -136,9 +137,12 @@ class GarudaPackageContractTests(unittest.TestCase):
             "pacman -Rns --noconfirm fontblind-bin",
             "linux/dell-g7-preflight.sh",
             "docs/LINUX_ACCEPTANCE.md",
-            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+            "fontblind-garuda-kde-x86_64-${{ env.VERIFIED_SHA }}",
+            "output/linux/SOURCE_SHA",
         ):
             self.assertIn(fragment, self.workflow)
+        self.assertRegex(self.workflow, r"actions/upload-artifact@[0-9a-f]{40}")
+        self.assertNotRegex(self.workflow, r"actions/upload-artifact@v\d")
 
     def test_public_claims_are_exactly_bounded(self) -> None:
         for text in (self.readme, self.project_readme, self.changelog):
