@@ -48,16 +48,22 @@ class GarudaPackageContractTests(unittest.TestCase):
     def test_pkgbuild_is_fixed_to_the_garuda_arch_contract(self) -> None:
         self.assertIn("pkgname=fontblind-bin", self.pkgbuild)
         self.assertIn("arch=('x86_64')", self.pkgbuild)
-        self.assertIn("depends=('hicolor-icon-theme' 'xdg-utils' 'kde-cli-tools')", self.pkgbuild)
+        self.assertIn(
+            "depends=('glibc' 'hicolor-icon-theme' 'xdg-utils' 'kde-cli-tools')",
+            self.pkgbuild,
+        )
         self.assertIn('$pkgdir/opt/fontblind', self.pkgbuild)
         self.assertIn('$pkgdir/usr/bin/fontblind', self.pkgbuild)
         self.assertNotIn("@ARCH@", self.pkgbuild)
         self.assertNotIn("AppRun", self.pkgbuild)
 
     def test_kde_launcher_is_root_refusing_and_uses_the_browser_host(self) -> None:
+        self.assertIn('"$#" -ne 0', self.launcher)
+        self.assertIn("Usage: fontblind", self.launcher)
         self.assertIn('"$(id -u)" -eq 0', self.launcher)
         self.assertIn("/opt/fontblind/FontBlindServer/FontBlindServer", self.launcher)
         self.assertIn("--fontblind-browser-app", self.launcher)
+        self.assertNotIn('"$@"', self.launcher)
         self.assertNotIn("xdg-open", self.launcher)
         self.assertNotIn("eval ", self.launcher)
 
