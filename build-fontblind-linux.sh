@@ -186,7 +186,7 @@ build_package() {
   cp -a "$PACKAGE_INPUT/." "$work/"
   (
     cd "$work"
-    PKGDEST="$destination" makepkg --nodeps --noconfirm --cleanbuild --clean
+    PKGDEST="$destination" makepkg --nodeps --noconfirm --cleanbuild --clean >&2
   )
   find "$destination" -maxdepth 1 -type f \
     -name "fontblind-bin-${VERSION}-1-x86_64.pkg.tar.zst" -print -quit
