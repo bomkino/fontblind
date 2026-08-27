@@ -134,7 +134,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed \
             python python-pip curl file binutils libarchive zstd \
-            xdg-utils hicolor-icon-theme desktop-file-utils nodejs shadow
+            xdg-utils kde-cli-tools hicolor-icon-theme desktop-file-utils nodejs shadow
           useradd --create-home --uid 1001 builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
       - name: Build reproducible Garuda package
