@@ -146,7 +146,7 @@ jobs:
           unzip -tq output/macos/FontBlind.zip
           printf '%s\n' "$VERIFIED_SHA" > output/macos/SOURCE_SHA
       - name: Upload verified macOS package
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: fontblind-macos-${{ env.VERIFIED_SHA }}
           path: |
@@ -255,7 +255,7 @@ jobs:
           test ! -e /usr/share/icons/hicolor/scalable/apps/fontblind.svg
           printf '%s\n' "$VERIFIED_SHA" > output/linux/SOURCE_SHA
       - name: Upload verified Garuda package
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: fontblind-garuda-kde-x86_64-${{ env.VERIFIED_SHA }}
           path: |

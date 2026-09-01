@@ -212,7 +212,7 @@ jobs:
           tar -C "$BUNDLE" -czf "$RUNNER_TEMP/FontBlind-$VERSION-release-dry-run-$TARGET_SHA.tar.gz" .
 
       - name: Upload validated dry-run bundle
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: fontblind-release-dry-run-${{ inputs.target_sha }}
           path: ${{ runner.temp }}/FontBlind-${{ env.VERSION }}-release-dry-run-${{ inputs.target_sha }}.tar.gz
